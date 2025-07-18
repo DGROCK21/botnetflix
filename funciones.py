@@ -1,42 +1,87 @@
 import imaplib
 import email
+import re
 import os
+from email.header import decode_header
 
-def buscar_codigo(correo_objetivo):
-    EMAIL = os.getenv("EMAIL")
-    PASSWORD = os.getenv("PASSWORD")
-    SERVIDOR_IMAP = os.getenv("IMAP_SERVER", "imap.gmail.com")
+EMAIL = os.getenv("EMAIL_USER")
+PASSWORD = os.getenv("EMAIL_PASS")
 
-    if not EMAIL or not PASSWORD:
-        print("Credenciales no definidas en variables de entorno.")
-        return None
-
+def buscar_codigo(correo):
     try:
-        mail = imaplib.IMAP4_SSL(SERVIDOR_IMAP)
+        print(f"📥 Conectando a Gmail como {EMAIL}")
+        mail = imaplib.IMAP4_SSL("imap.gmail.com")
         mail.login(EMAIL, PASSWORD)
         mail.select("inbox")
 
-        typ, data = mail.search(None, 'UNSEEN')
-        mail_ids = data[0].split()
+        _, mensajes = mail.search(None, "ALL")
+        mensajes = mensajes[0].split()
 
-        for num in reversed(mail_ids[-10:]):
-            typ, data = mail.fetch(num, '(RFC822)')
-            mensaje = email.message_from_bytes(data[0][1])
-            asunto = mensaje["subject"]
-            origen = mensaje["from"]
+        for num in reversed(mensajes[-20:]):
+            _, datos = mail.fetch(num, "(RFC822)")
+            mensaje = email.message_from_bytes(datos[0][1])
 
-            if correo_objetivo.lower() in origen.lower():
+            cuerpo = ""
+            if mensaje.is_multipart():
                 for parte in mensaje.walk():
                     if parte.get_content_type() == "text/plain":
                         payload = parte.get_payload(decode=True)
-                        if payload is None:
-                            continue
-                        cuerpo = payload.decode()
-                        lineas = cuerpo.split("\n")
-                        for linea in lineas:
-                            if "código" in linea.lower():
-                                return linea.strip()
+                        if payload:
+                            cuerpo += payload.decode(errors="ignore")
+            else:
+                payload = mensaje.get_payload(decode=True)
+                if payload:
+                    cuerpo += payload.decode(errors="ignore")
+
+            if correo in cuerpo:
+                codigos = re.findall(r"\d{6}", cuerpo)
+                if codigos:
+                    print(f"✅ Código encontrado: {codigos[0]}")
+                    return f"✅ Código encontrado: `{codigos[0]}`"
+
+        print("❌ No se encontró ningún código")
         return None
+
     except Exception as e:
-        print(f"Error al buscar el código: {e}")
+        print("❌ ERROR buscar_codigo:", e)
+        return None
+
+
+def buscar_link_actualizar_hogar(correo):
+    try:
+        print(f"📥 Conectando a Gmail como {EMAIL}")
+        mail = imaplib.IMAP4_SSL("imap.gmail.com")
+        mail.login(EMAIL, PASSWORD)
+        mail.select("inbox")
+
+        _, mensajes = mail.search(None, "ALL")
+        mensajes = mensajes[0].split()
+
+        for num in reversed(mensajes[-20:]):
+            _, datos = mail.fetch(num, "(RFC822)")
+            mensaje = email.message_from_bytes(datos[0][1])
+
+            cuerpo = ""
+            if mensaje.is_multipart():
+                for parte in mensaje.walk():
+                    if parte.get_content_type() == "text/plain":
+                        payload = parte.get_payload(decode=True)
+                        if payload:
+                            cuerpo += payload.decode(errors="ignore")
+            else:
+                payload = mensaje.get_payload(decode=True)
+                if payload:
+                    cuerpo += payload.decode(errors="ignore")
+
+            if correo in cuerpo:
+                match = re.search(r"https://www\.netflix\.com/update/home\S+", cuerpo)
+                if match:
+                    print(f"✅ Enlace hogar encontrado: {match.group(0)}")
+                    return match.group(0)
+
+        print("❌ No se encontró ningún enlace de hogar")
+        return None
+
+    except Exception as e:
+        print("❌ ERROR buscar_link_actualizar_hogar:", e)
         return None
