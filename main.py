@@ -11,14 +11,14 @@ logging.basicConfig(level=logging.INFO)
 TOKEN = os.environ.get("BOT_TOKEN", "7654437554:AAGCoNqZxd8EBo_7d9yE5Llr06i24QAJmaY")
 bot = TeleBot(TOKEN)
 
-# === Función para cargar cuentas desde el archivo JSON ===
+# === Cargar cuentas ===
 def cargar_cuentas():
     try:
         with open("cuentas.json", "r", encoding="utf-8") as f:
             return json.load(f)
     except Exception as e:
         logging.error(f"Error cargando cuentas.json: {e}")
-        return {"usuarios": []}
+        return {}
 
 # === Comando /code ===
 @bot.message_handler(commands=["code"])
@@ -33,11 +33,10 @@ def code(update):
     autorizado = False
     existe = False
 
-    for usuario in datos["usuarios"]:
-        if correo in usuario["correos"]:
+    for _, correos in datos.items():
+        if correo in correos:
             existe = True
-            if usuario.get("autorizado", False):
-                autorizado = True
+            autorizado = True
             break
 
     if not existe:
@@ -64,11 +63,10 @@ def hogar(update):
     autorizado = False
     existe = False
 
-    for usuario in datos["usuarios"]:
-        if correo in usuario["correos"]:
+    for _, correos in datos.items():
+        if correo in correos:
             existe = True
-            if usuario.get("autorizado", False):
-                autorizado = True
+            autorizado = True
             break
 
     if not existe:
@@ -88,17 +86,12 @@ def cuentas(update):
     datos = cargar_cuentas()
     user_id = str(update.from_user.id)
 
-    for usuario in datos["usuarios"]:
-        if usuario.get("id") == user_id:
-            correos = usuario.get("correos", [])
-            if correos:
-                lista = "\n".join(f"📧 {c}" for c in correos)
-                bot.reply_to(update, f"📂 Tus correos autorizados:\n\n{lista}")
-            else:
-                bot.reply_to(update, "🔍 No tienes correos registrados.")
-            return
-
-    bot.reply_to(update, "❌ No estás registrado como usuario.")
+    if user_id in datos:
+        correos = datos[user_id]
+        lista = "\n".join(f"📧 {c}" for c in correos)
+        bot.reply_to(update, f"📂 Tus correos autorizados:\n\n{lista}")
+    else:
+        bot.reply_to(update, "❌ No estás autorizado para ver correos.")
 
 # === Comando /id ===
 @bot.message_handler(commands=["id"])
