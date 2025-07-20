@@ -1,4 +1,4 @@
-python-telegram-bot==20.3
-imaplib2
+pyTelegramBotAPI==4.12.0
 flask
-beautifulsoup4
+imaplib2
+
