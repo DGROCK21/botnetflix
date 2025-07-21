@@ -6,21 +6,28 @@ import email
 import re
 import logging
 from email.header import decode_header
-from keep_alive import mantener_vivo
+from flask import Flask, request
+from keep_alive import mantener_vivo  # si quieres mantener página web activa (opcional)
 
-# Cargar cuentas desde archivo
+# Cargar cuentas
 with open("cuentas.json", "r") as file:
     cuentas = json.load(file)
 
-# Cargar el token del bot desde variable de entorno
+# Token desde variable de entorno
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 if not BOT_TOKEN:
-    print("❌ BOT_TOKEN no está definido como variable de entorno.")
+    print("❌ BOT_TOKEN no está definido.")
     exit(1)
 
 bot = telebot.TeleBot(BOT_TOKEN)
 
-# Obtener credenciales asociadas a un correo
+# Flask app para Webhook
+app = Flask(__name__)
+
+# ==========================
+# Funciones de correo
+# ==========================
+
 def obtener_credenciales(correo):
     for user_id, correos in cuentas.items():
         for entrada in correos:
@@ -30,7 +37,6 @@ def obtener_credenciales(correo):
                     return partes[1], partes[2]
     return None, None
 
-# Buscar el último correo con asunto clave y extraer HTML
 def buscar_ultimo_correo(correo, asunto_clave):
     usuario, contrasena = obtener_credenciales(correo)
     if not usuario or not contrasena:
@@ -40,7 +46,6 @@ def buscar_ultimo_correo(correo, asunto_clave):
         mail = imaplib.IMAP4_SSL("imap.gmail.com")
         mail.login(usuario, contrasena)
         mail.select("inbox")
-
         _, mensajes = mail.search(None, "ALL")
         mensajes = mensajes[0].split()
 
@@ -71,7 +76,6 @@ def buscar_ultimo_correo(correo, asunto_clave):
         logging.exception("Error al buscar correo")
         return None, f"⚠️ Error al acceder al correo: {str(e)}"
 
-# Extraer el enlace que contiene nftoken desde el HTML
 def extraer_link_con_token(html):
     links = re.findall(r'href=[\'"]?([^\'" >]+)', html)
     for link in links:
@@ -79,12 +83,15 @@ def extraer_link_con_token(html):
             return link
     return None
 
-# Comando /code
+# ==========================
+# Handlers del bot
+# ==========================
+
 @bot.message_handler(commands=["code"])
 def manejar_code(message):
     partes = message.text.split()
     if len(partes) != 2:
-        bot.reply_to(message, "❌ Uso incorrecto. Debes enviar: /code tu_correo@dgplayk.com")
+        bot.reply_to(message, "❌ Uso: /code tu_correo@dgplayk.com")
         return
 
     correo = partes[1].lower()
@@ -94,17 +101,13 @@ def manejar_code(message):
         return
 
     link = extraer_link_con_token(html)
-    if link:
-        bot.reply_to(message, f"🔗 {link}")
-    else:
-        bot.reply_to(message, "❌ No se encontró ningún enlace con nftoken= en el correo.")
+    bot.reply_to(message, f"🔗 {link}" if link else "❌ No se encontró ningún enlace con nftoken=.")
 
-# Comando /hogar
 @bot.message_handler(commands=["hogar"])
 def manejar_hogar(message):
     partes = message.text.split()
     if len(partes) != 2:
-        bot.reply_to(message, "❌ Uso incorrecto. Debes enviar: /hogar tu_correo@dgplayk.com")
+        bot.reply_to(message, "❌ Uso: /hogar tu_correo@dgplayk.com")
         return
 
     correo = partes[1].lower()
@@ -114,13 +117,27 @@ def manejar_hogar(message):
         return
 
     link = extraer_link_con_token(html)
-    if link:
-        bot.reply_to(message, f"🏠 {link}")
-    else:
-        bot.reply_to(message, "❌ No se encontró ningún enlace con nftoken= en el correo.")
+    bot.reply_to(message, f"🏠 {link}" if link else "❌ No se encontró ningún enlace con nftoken=.")
 
-# Mantener el bot vivo en Render
-mantener_vivo()
+# ==========================
+# Webhook route
+# ==========================
 
-print("🤖 Bot iniciado y escuchando...")
-bot.infinity_polling()
+@app.route(f"/{BOT_TOKEN}", methods=["POST"])
+def recibir_update():
+    json_str = request.get_data().decode("utf-8")
+    update = telebot.types.Update.de_json(json_str)
+    bot.process_new_updates([update])
+    return "", 200
+
+@app.route("/", methods=["GET"])
+def root():
+    return "✅ Bot Netflix activo vía webhook", 200
+
+# ==========================
+# Iniciar
+# ==========================
+
+if __name__ == "__main__":
+    mantener_vivo()
+    app.run(host="0.0.0.0", port=8080)
