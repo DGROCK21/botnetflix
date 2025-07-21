@@ -7,26 +7,23 @@ import re
 import logging
 from email.header import decode_header
 from flask import Flask, request
-from keep_alive import mantener_vivo  # si quieres mantener página web activa (opcional)
+from keep_alive import mantener_vivo
 
-# Cargar cuentas
+# Cargar cuentas desde archivo
 with open("cuentas.json", "r") as file:
     cuentas = json.load(file)
 
-# Token desde variable de entorno
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 if not BOT_TOKEN:
     print("❌ BOT_TOKEN no está definido.")
     exit(1)
 
 bot = telebot.TeleBot(BOT_TOKEN)
-
-# Flask app para Webhook
 app = Flask(__name__)
 
-# ==========================
-# Funciones de correo
-# ==========================
+# =====================
+# Funciones auxiliares
+# =====================
 
 def obtener_credenciales(correo):
     for user_id, correos in cuentas.items():
@@ -83,9 +80,9 @@ def extraer_link_con_token(html):
             return link
     return None
 
-# ==========================
-# Handlers del bot
-# ==========================
+# =====================
+# Comandos del bot
+# =====================
 
 @bot.message_handler(commands=["code"])
 def manejar_code(message):
@@ -119,9 +116,19 @@ def manejar_hogar(message):
     link = extraer_link_con_token(html)
     bot.reply_to(message, f"🏠 {link}" if link else "❌ No se encontró ningún enlace con nftoken=.")
 
-# ==========================
-# Webhook route
-# ==========================
+@bot.message_handler(commands=["cuentas"])
+def mostrar_correos(message):
+    todos = []
+    for lista in cuentas.values():
+        for entrada in lista:
+            correo = entrada.split("|")[0] if "|" in entrada else entrada
+            todos.append(correo)
+    texto = "📋 Correos registrados:\n" + "\n".join(todos) if todos else "⚠️ No hay correos registrados."
+    bot.reply_to(message, texto)
+
+# =====================
+# Webhook
+# =====================
 
 @app.route(f"/{BOT_TOKEN}", methods=["POST"])
 def recibir_update():
@@ -131,12 +138,12 @@ def recibir_update():
     return "", 200
 
 @app.route("/", methods=["GET"])
-def root():
-    return "✅ Bot Netflix activo vía webhook", 200
+def index():
+    return "✅ Bot Netflix activo vía Webhook", 200
 
-# ==========================
-# Iniciar
-# ==========================
+# =====================
+# Inicio
+# =====================
 
 if __name__ == "__main__":
     mantener_vivo()
