@@ -1,105 +1,82 @@
-import os
+import telebot
 import json
-import logging
-from telebot import TeleBot
-from funciones import buscar_codigo, buscar_link_actualizar_hogar
-from keep_alive import mantener_vivo
+import os
+import base64
+import time
+import requests
+import re
+from bs4 import BeautifulSoup
+from email.header import decode_header
 
-logging.basicConfig(level=logging.INFO)
+# Cargar configuración
+with open("cuentas.json", "r") as file:
+    cuentas = json.load(file)
 
-# Token del bot
-TOKEN = os.environ.get("BOT_TOKEN", "7654437554:AAGCoNqZxd8EBo_7d9yE5Llr06i24QAJmaY")
-bot = TeleBot(TOKEN)
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+if not BOT_TOKEN:
+    print("❌ BOT_TOKEN no está definido como variable de entorno.")
+    exit(1)
 
-# === Cargar cuentas ===
-def cargar_cuentas():
-    try:
-        with open("cuentas.json", "r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception as e:
-        logging.error(f"Error cargando cuentas.json: {e}")
-        return {}
+bot = telebot.TeleBot(BOT_TOKEN)
 
-# === Comando /code ===
-@bot.message_handler(commands=["code"])
-def code(update):
-    partes = update.text.split(" ", 1)
-    if len(partes) < 2:
-        bot.reply_to(update, "❌ Usa el comando así:\n`/code correo@ejemplo.com`", parse_mode="Markdown")
+def get_token(usuario):
+    datos = cuentas.get(usuario.lower())
+    if not datos:
+        return None
+    return datos["token"]
+
+def obtener_html(token):
+    headers = {"Authorization": f"Bearer {token}"}
+    resp = requests.get("https://api.mail.tm/messages", headers=headers)
+    if resp.status_code != 200:
+        return None
+
+    mensajes = resp.json().get("hydra:member", [])
+    if not mensajes:
+        return None
+
+    for msg in mensajes:
+        id_mensaje = msg["id"]
+        detalle = requests.get(f"https://api.mail.tm/messages/{id_mensaje}", headers=headers)
+        if detalle.status_code == 200:
+            contenido = detalle.json()
+            if contenido.get("seen") == True:
+                continue
+            htmls = contenido.get("html", [])
+            if htmls:
+                return htmls[0]
+    return None
+
+def extraer_link(html):
+    soup = BeautifulSoup(html, "html.parser")
+    for link in soup.find_all("a", href=True):
+        if "nftoken=" in link["href"]:
+            return link["href"]
+    return None
+
+@bot.message_handler(commands=["code", "hogar"])
+def manejar_comando(message):
+    partes = message.text.split()
+    if len(partes) != 2:
+        bot.reply_to(message, "❌ Uso incorrecto. Debes enviar: /code tu_correo")
         return
 
-    correo = partes[1].strip()
-    datos = cargar_cuentas()
-    autorizado = False
-    existe = False
-
-    for _, correos in datos.items():
-        if correo in correos:
-            existe = True
-            autorizado = True
-            break
-
-    if not existe:
-        bot.reply_to(update, "❌ Ese correo no está registrado en el sistema.")
-        return
-    if not autorizado:
-        bot.reply_to(update, "⛔ Ese correo existe pero no está autorizado.")
+    correo = partes[1].lower()
+    token = get_token(correo)
+    if not token:
+        bot.reply_to(message, "❌ Ese correo no está registrado en el sistema.")
         return
 
-    bot.reply_to(update, "🔍 Buscando código, por favor espera...")
-    link = buscar_codigo(correo)
-    bot.reply_to(update, link)
-
-# === Comando /hogar ===
-@bot.message_handler(commands=["hogar"])
-def hogar(update):
-    partes = update.text.split(" ", 1)
-    if len(partes) < 2:
-        bot.reply_to(update, "❌ Usa el comando así:\n`/hogar correo@ejemplo.com`", parse_mode="Markdown")
+    html = obtener_html(token)
+    if not html:
+        bot.reply_to(message, "📭 No se encontró un correo reciente sin leer.")
         return
 
-    correo = partes[1].strip()
-    datos = cargar_cuentas()
-    autorizado = False
-    existe = False
-
-    for _, correos in datos.items():
-        if correo in correos:
-            existe = True
-            autorizado = True
-            break
-
-    if not existe:
-        bot.reply_to(update, "❌ Ese correo no está registrado en el sistema.")
-        return
-    if not autorizado:
-        bot.reply_to(update, "⛔ Ese correo existe pero no está autorizado.")
-        return
-
-    bot.reply_to(update, "🔵 Buscando link de hogar, por favor espera...")
-    link = buscar_link_actualizar_hogar(correo)
-    bot.reply_to(update, link)
-
-# === Comando /cuentas ===
-@bot.message_handler(commands=["cuentas"])
-def cuentas(update):
-    datos = cargar_cuentas()
-    user_id = str(update.from_user.id)
-
-    if user_id in datos:
-        correos = datos[user_id]
-        lista = "\n".join(f"📧 {c}" for c in correos)
-        bot.reply_to(update, f"📂 Tus correos autorizados:\n\n{lista}")
+    link = extraer_link(html)
+    if link:
+        bot.reply_to(message, f"🔗 {link}")
     else:
-        bot.reply_to(update, "❌ No estás autorizado para ver correos.")
+        bot.reply_to(message, "❌ No se encontró ningún enlace con nftoken= en el correo.")
 
-# === Comando /id ===
-@bot.message_handler(commands=["id"])
-def mostrar_id(update):
-    bot.reply_to(update, f"🆔 Tu ID de Telegram es: `{update.from_user.id}`", parse_mode="Markdown")
-
-# === Iniciar bot ===
-print("🤖 Bot activo y funcionando.")
-mantener_vivo()
-bot.remove_webhook()
-bot.infinity_polling()
+print("🤖 Bot iniciado...")
+bot.polling()
