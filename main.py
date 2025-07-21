@@ -8,19 +8,19 @@ import logging
 from email.header import decode_header
 from keep_alive import mantener_vivo
 
-# Cargar archivo de cuentas
+# Cargar cuentas desde archivo
 with open("cuentas.json", "r") as file:
     cuentas = json.load(file)
 
-# Token del bot desde variable de entorno
+# Cargar el token del bot desde variable de entorno
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 if not BOT_TOKEN:
-    print("❌ BOT_TOKEN no está definido.")
+    print("❌ BOT_TOKEN no está definido como variable de entorno.")
     exit(1)
 
 bot = telebot.TeleBot(BOT_TOKEN)
 
-# Obtener credenciales del correo basado en cuentas.json
+# Obtener credenciales asociadas a un correo
 def obtener_credenciales(correo):
     for user_id, correos in cuentas.items():
         for entrada in correos:
@@ -30,7 +30,7 @@ def obtener_credenciales(correo):
                     return partes[1], partes[2]
     return None, None
 
-# Buscar el último correo con un asunto específico
+# Buscar el último correo con asunto clave y extraer HTML
 def buscar_ultimo_correo(correo, asunto_clave):
     usuario, contrasena = obtener_credenciales(correo)
     if not usuario or not contrasena:
@@ -44,6 +44,83 @@ def buscar_ultimo_correo(correo, asunto_clave):
         _, mensajes = mail.search(None, "ALL")
         mensajes = mensajes[0].split()
 
-        for num in reversed(mensajes[-20:]):  # revisar últimos 20 mensajes
+        for num in reversed(mensajes[-20:]):
             _, datos = mail.fetch(num, "(RFC822)")
             mensaje = email.message_from_bytes(datos[0][1])
+
+            asunto, codificacion = decode_header(mensaje["Subject"])[0]
+            if isinstance(asunto, bytes):
+                asunto = asunto.decode(codificacion or "utf-8")
+
+            if asunto_clave.lower() in asunto.lower():
+                if mensaje.is_multipart():
+                    for parte in mensaje.walk():
+                        if parte.get_content_type() == "text/html":
+                            html = parte.get_payload(decode=True).decode(parte.get_content_charset() or "utf-8")
+                            mail.logout()
+                            return html, None
+                else:
+                    html = mensaje.get_payload(decode=True).decode(mensaje.get_content_charset() or "utf-8")
+                    mail.logout()
+                    return html, None
+
+        mail.logout()
+        return None, "❌ No se encontró un correo reciente con ese asunto."
+
+    except Exception as e:
+        logging.exception("Error al buscar correo")
+        return None, f"⚠️ Error al acceder al correo: {str(e)}"
+
+# Extraer el enlace que contiene nftoken desde el HTML
+def extraer_link_con_token(html):
+    links = re.findall(r'href=[\'"]?([^\'" >]+)', html)
+    for link in links:
+        if "nftoken=" in link:
+            return link
+    return None
+
+# Comando /code
+@bot.message_handler(commands=["code"])
+def manejar_code(message):
+    partes = message.text.split()
+    if len(partes) != 2:
+        bot.reply_to(message, "❌ Uso incorrecto. Debes enviar: /code tu_correo@dgplayk.com")
+        return
+
+    correo = partes[1].lower()
+    html, error = buscar_ultimo_correo(correo, "Código de acceso")
+    if error:
+        bot.reply_to(message, error)
+        return
+
+    link = extraer_link_con_token(html)
+    if link:
+        bot.reply_to(message, f"🔗 {link}")
+    else:
+        bot.reply_to(message, "❌ No se encontró ningún enlace con nftoken= en el correo.")
+
+# Comando /hogar
+@bot.message_handler(commands=["hogar"])
+def manejar_hogar(message):
+    partes = message.text.split()
+    if len(partes) != 2:
+        bot.reply_to(message, "❌ Uso incorrecto. Debes enviar: /hogar tu_correo@dgplayk.com")
+        return
+
+    correo = partes[1].lower()
+    html, error = buscar_ultimo_correo(correo, "actualizar hogar")
+    if error:
+        bot.reply_to(message, error)
+        return
+
+    link = extraer_link_con_token(html)
+    if link:
+        bot.reply_to(message, f"🏠 {link}")
+    else:
+        bot.reply_to(message, "❌ No se encontró ningún enlace con nftoken= en el correo.")
+
+# Mantener el bot vivo en Render
+mantener_vivo()
+
+print("🤖 Bot iniciado y escuchando...")
+bot.infinity_polling()
