@@ -1,82 +1,49 @@
 import telebot
-import json
 import os
-import base64
-import time
-import requests
+import json
+import imaplib
+import email
 import re
-from bs4 import BeautifulSoup
+import logging
 from email.header import decode_header
+from keep_alive import mantener_vivo
 
-# Cargar configuración
+# Cargar archivo de cuentas
 with open("cuentas.json", "r") as file:
     cuentas = json.load(file)
 
+# Token del bot desde variable de entorno
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 if not BOT_TOKEN:
-    print("❌ BOT_TOKEN no está definido como variable de entorno.")
+    print("❌ BOT_TOKEN no está definido.")
     exit(1)
 
 bot = telebot.TeleBot(BOT_TOKEN)
 
-def get_token(usuario):
-    datos = cuentas.get(usuario.lower())
-    if not datos:
-        return None
-    return datos["token"]
+# Obtener credenciales del correo basado en cuentas.json
+def obtener_credenciales(correo):
+    for user_id, correos in cuentas.items():
+        for entrada in correos:
+            if entrada.startswith(correo):
+                partes = entrada.split("|")
+                if len(partes) == 3:
+                    return partes[1], partes[2]
+    return None, None
 
-def obtener_html(token):
-    headers = {"Authorization": f"Bearer {token}"}
-    resp = requests.get("https://api.mail.tm/messages", headers=headers)
-    if resp.status_code != 200:
-        return None
+# Buscar el último correo con un asunto específico
+def buscar_ultimo_correo(correo, asunto_clave):
+    usuario, contrasena = obtener_credenciales(correo)
+    if not usuario or not contrasena:
+        return None, "❌ No se encontraron credenciales para ese correo."
 
-    mensajes = resp.json().get("hydra:member", [])
-    if not mensajes:
-        return None
+    try:
+        mail = imaplib.IMAP4_SSL("imap.gmail.com")
+        mail.login(usuario, contrasena)
+        mail.select("inbox")
 
-    for msg in mensajes:
-        id_mensaje = msg["id"]
-        detalle = requests.get(f"https://api.mail.tm/messages/{id_mensaje}", headers=headers)
-        if detalle.status_code == 200:
-            contenido = detalle.json()
-            if contenido.get("seen") == True:
-                continue
-            htmls = contenido.get("html", [])
-            if htmls:
-                return htmls[0]
-    return None
+        _, mensajes = mail.search(None, "ALL")
+        mensajes = mensajes[0].split()
 
-def extraer_link(html):
-    soup = BeautifulSoup(html, "html.parser")
-    for link in soup.find_all("a", href=True):
-        if "nftoken=" in link["href"]:
-            return link["href"]
-    return None
-
-@bot.message_handler(commands=["code", "hogar"])
-def manejar_comando(message):
-    partes = message.text.split()
-    if len(partes) != 2:
-        bot.reply_to(message, "❌ Uso incorrecto. Debes enviar: /code tu_correo")
-        return
-
-    correo = partes[1].lower()
-    token = get_token(correo)
-    if not token:
-        bot.reply_to(message, "❌ Ese correo no está registrado en el sistema.")
-        return
-
-    html = obtener_html(token)
-    if not html:
-        bot.reply_to(message, "📭 No se encontró un correo reciente sin leer.")
-        return
-
-    link = extraer_link(html)
-    if link:
-        bot.reply_to(message, f"🔗 {link}")
-    else:
-        bot.reply_to(message, "❌ No se encontró ningún enlace con nftoken= en el correo.")
-
-print("🤖 Bot iniciado...")
-bot.polling()
+        for num in reversed(mensajes[-20:]):  # revisar últimos 20 mensajes
+            _, datos = mail.fetch(num, "(RFC822)")
+            mensaje = email.message_from_bytes(datos[0][1])
