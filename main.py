@@ -96,14 +96,6 @@ def buscar_ultimo_correo(correo_a_buscar, asunto_clave, num_mensajes_revisar=50)
                 asunto = mensaje.get("Subject", "Sin Asunto") # Fallback si hay error
                 logging.warning(f"No se pudo decodificar el asunto: {e}. Usando asunto crudo: {asunto}")
 
-            # También necesitamos verificar el remitente, no solo el asunto, si es para un correo específico de Netflix
-            # para_header = mensaje.get("To", "").lower()
-            # from_header = mensaje.get("From", "").lower()
-            # logging.info(f"Correo 'Para': {para_header}, 'De': {from_header}")
-
-            # Aseguramos que el correo sea para el correo de Netflix solicitado
-            # y que el asunto contenga la clave.
-            # Nota: El reenvío a veces puede afectar el "To" original, pero el cuerpo y el asunto suelen ser consistentes.
             if asunto_clave.lower() in asunto.lower():
                 logging.info(f"Asunto '{asunto_clave}' encontrado en '{asunto}'. Extrayendo HTML.")
                 
@@ -186,9 +178,9 @@ def obtener_codigo_de_pagina(url_netflix):
         html_pagina_codigo = response.text
         logging.info("Página de Netflix para código obtenida. Buscando el código...")
         
-        # --- AQUÍ ES DONDE PEGARÁS LA NUEVA LÍNEA CON LA REGEX AJUSTADA ---
-        # Por ahora, mantengo la genérica. La ajustarás después de inspeccionar la página.
-        match = re.search(r'\b(\d{6})\b', html_pagina_codigo) 
+        # --- AJUSTE AQUÍ: AHORA BUSCAMOS 4 DÍGITOS EN LUGAR DE 6 ---
+        # Si la estructura HTML cambia, aún podrías necesitar ajustar el contexto (e.g., span, div, strong)
+        match = re.search(r'\b(\d{4})\b', html_pagina_codigo) # CAMBIADO DE \d{6} a \d{4}
 
         if match:
             codigo = match.group(1)
@@ -215,7 +207,7 @@ def confirmar_hogar_netflix(url_confirmacion):
     try:
         logging.info(f"Visitando URL para confirmar Hogar: {url_confirmacion}")
         headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/555.55 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
             'Referer': 'https://www.netflix.com/' 
         }
         response = requests.get(url_confirmacion, headers=headers, allow_redirects=True, timeout=30)
@@ -253,7 +245,8 @@ def manejar_code(message):
         return
 
     correo_busqueda = partes[1].lower()
-    html_correo, error = buscar_ultimo_correo(correo_busqueda, "Código de acceso temporal")
+    # Asunto clave para código temporal de Netflix
+    html_correo, error = buscar_ultimo_correo(correo_busqueda, "Código de acceso temporal") 
 
     if error:
         bot.reply_to(message, error)
@@ -265,7 +258,7 @@ def manejar_code(message):
         if codigo_final:
             bot.reply_to(message, f"✅ Tu código de Netflix es: `{codigo_final}`")
         else:
-            bot.reply_to(message, "❌ Se encontró el enlace de código, pero no se pudo extraer el código de la página de Netflix. Es posible que el formato de la página haya cambiado o que la regex necesite ajuste.")
+            bot.reply_to(message, "❌ Se encontró el enlace de código, pero no se pudo extraer el código de la página de Netflix. Es posible que el formato de la página haya cambiado o que la regex necesite ajuste (ej: contexto HTML).")
     else:
         bot.reply_to(message, "❌ No se encontró ningún enlace de código de Netflix en el correo. Verifica que el correo haya llegado y contenga el botón 'Obtener código'.")
 
@@ -278,6 +271,7 @@ def manejar_hogar(message):
         return
 
     correo_busqueda = partes[1].lower()
+    # Asunto clave para actualización de hogar de Netflix
     html_correo, error = buscar_ultimo_correo(correo_busqueda, "actualizar tu Hogar") 
 
     if error:
@@ -298,7 +292,6 @@ def mostrar_correos(message):
     todos = []
     user_id = str(message.from_user.id)
     if user_id in cuentas and isinstance(cuentas[user_id], list):
-        # Asegurarse de que solo se extrae el correo de Netflix, no las credenciales IMAP (que ya no están en cuentas.json)
         for entrada in cuentas[user_id]:
             correo = entrada.split("|")[0] if "|" in entrada else entrada
             todos.append(correo)
