@@ -5,7 +5,7 @@ import imaplib
 import email
 import re
 import logging
-import time # Añadido para pausas si son necesarias
+import time
 from email.header import decode_header
 from flask import Flask, request
 from keep_alive import mantener_vivo
@@ -15,7 +15,7 @@ from bs4 import BeautifulSoup
 # Configurar logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# Cargar cuentas desde archivo
+# Cargar cuentas desde archivo (ahora solo para los correos de Netflix asociados a user_id, no las credenciales IMAP)
 try:
     with open("cuentas.json", "r") as file:
         cuentas = json.load(file)
@@ -30,8 +30,15 @@ except json.JSONDecodeError:
     exit(1)
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
+# Ahora obtenemos las credenciales IMAP desde las variables de entorno
+IMAP_USER = os.getenv("E-MAIL_USER")
+IMAP_PASS = os.getenv("EMAIL_PASS")
+
 if not BOT_TOKEN:
     logging.error("❌ BOT_TOKEN no está definido. El bot no puede iniciarse.")
+    exit(1)
+if not IMAP_USER or not IMAP_PASS:
+    logging.error("❌ E-MAIL_USER o EMAIL_PASS no están definidos en las variables de entorno. El bot no puede leer correos.")
     exit(1)
 
 bot = telebot.TeleBot(BOT_TOKEN)
@@ -41,29 +48,22 @@ app = Flask(__name__)
 # Funciones auxiliares
 # =====================
 
-def obtener_credenciales(correo_netflix_asociado):
-    """Busca las credenciales de correo electrónico IMAP en el diccionario de cuentas."""
-    for user_id, correos_list in cuentas.items():
-        if isinstance(correos_list, list): # Asegurar que es una lista
-            for entrada in correos_list:
-                partes = entrada.split("|")
-                # El formato esperado es "correo_netflix|correo_imap|contrasena_imap"
-                if len(partes) == 3 and partes[0].lower() == correo_netflix_asociado.lower():
-                    logging.info(f"Credenciales encontradas para {correo_netflix_asociado} con IMAP usuario {partes[1]}")
-                    return partes[1], partes[2] # Retorna usuario IMAP y contraseña
-        else:
-            logging.warning(f"Formato inesperado en cuentas.json para user_id {user_id}: {correos_list}")
-    logging.warning(f"No se encontraron credenciales para el correo: {correo_netflix_asociado}")
-    return None, None
+# La función obtener_credenciales ya no necesita buscar en cuentas.json para IMAP
+# Simplemente devolverá las credenciales de las variables de entorno
+def obtener_credenciales_imap():
+    """Retorna las credenciales IMAP desde las variables de entorno."""
+    return IMAP_USER, IMAP_PASS
 
 def buscar_ultimo_correo(correo_a_buscar, asunto_clave, num_mensajes_revisar=50):
     """
     Busca el último correo con un asunto clave dado para un correo específico.
     Retorna el HTML del correo y None si tiene éxito, o None y un mensaje de error.
     """
-    usuario_imap, contrasena_imap = obtener_credenciales(correo_a_buscar)
+    # Ahora obtenemos las credenciales IMAP directamente de las variables de entorno
+    usuario_imap, contrasena_imap = obtener_credenciales_imap()
+    
     if not usuario_imap or not contrasena_imap:
-        return None, "❌ No se encontraron credenciales para ese correo. Asegúrate de que el formato en cuentas.json es 'correo_netflix|correo_imap|contraseña_imap' y que el correo_imap y contraseña son correctos."
+        return None, "❌ Error interno: Credenciales IMAP no configuradas en las variables de entorno del bot."
 
     try:
         logging.info(f"Intentando conectar a IMAP para {usuario_imap}...")
@@ -96,8 +96,14 @@ def buscar_ultimo_correo(correo_a_buscar, asunto_clave, num_mensajes_revisar=50)
                 asunto = mensaje.get("Subject", "Sin Asunto") # Fallback si hay error
                 logging.warning(f"No se pudo decodificar el asunto: {e}. Usando asunto crudo: {asunto}")
 
-            logging.info(f"Procesando correo con asunto: '{asunto}'")
-            # Buscar el asunto clave (insensible a mayúsculas/minúsculas)
+            # También necesitamos verificar el remitente, no solo el asunto, si es para un correo específico de Netflix
+            # para_header = mensaje.get("To", "").lower()
+            # from_header = mensaje.get("From", "").lower()
+            # logging.info(f"Correo 'Para': {para_header}, 'De': {from_header}")
+
+            # Aseguramos que el correo sea para el correo de Netflix solicitado
+            # y que el asunto contenga la clave.
+            # Nota: El reenvío a veces puede afectar el "To" original, pero el cuerpo y el asunto suelen ser consistentes.
             if asunto_clave.lower() in asunto.lower():
                 logging.info(f"Asunto '{asunto_clave}' encontrado en '{asunto}'. Extrayendo HTML.")
                 
@@ -106,14 +112,13 @@ def buscar_ultimo_correo(correo_a_buscar, asunto_clave, num_mensajes_revisar=50)
                     for parte in mensaje.walk():
                         ctype = parte.get_content_type()
                         cdisp = str(parte.get('Content-Disposition'))
-                        # Asegurarse de que sea HTML y no un adjunto
                         if ctype == 'text/html' and 'attachment' not in cdisp:
                             try:
                                 html_content = parte.get_payload(decode=True).decode(parte.get_content_charset() or "utf-8", errors='ignore')
                                 break 
                             except Exception as e:
                                 logging.warning(f"Error decodificando parte HTML: {e}")
-                else: # Si el mensaje no es multipart
+                else:
                     try:
                         if mensaje.get_content_type() == 'text/html':
                             html_content = mensaje.get_payload(decode=True).decode(mensaje.get_content_charset() or "utf-8", errors='ignore')
@@ -148,10 +153,8 @@ def extraer_link_con_token_o_confirmacion(html_content, es_hogar=False):
     soup = BeautifulSoup(html_content, 'html.parser')
     
     if es_hogar:
-        # Buscar el botón "Sí, la envié yo" por su estilo (color rojo de Netflix) o texto
-        # Ajusta el selector si el HTML del correo de "hogar" varía
         boton = soup.find('a', style=lambda value: value and 'background-color:#e50914' in value)
-        if not boton: # Si no lo encuentra por estilo, busca por texto exacto o regex
+        if not boton:
              boton = soup.find('a', string=re.compile(r'Sí, la envié yo', re.IGNORECASE))
         
         if boton and 'href' in boton.attrs:
@@ -159,7 +162,6 @@ def extraer_link_con_token_o_confirmacion(html_content, es_hogar=False):
             logging.info(f"Enlace de confirmación de Hogar encontrado: {link}")
             return link
     
-    # Para "código" o si no es un correo de hogar, busca el enlace con 'nftoken='
     for a_tag in soup.find_all('a', href=True):
         link = a_tag['href']
         if "nftoken=" in link:
@@ -184,13 +186,8 @@ def obtener_codigo_de_pagina(url_netflix):
         html_pagina_codigo = response.text
         logging.info("Página de Netflix para código obtenida. Buscando el código...")
         
-        # --- CRÍTICO: AJUSTAR ESTA REGEX ---
-        # Abre la página con el código en tu navegador (la que sale al hacer click en "Obtener código" )
-        # y "Inspecciona" el código HTML para ver cómo se muestra el código.
-        # Luego, ajusta esta expresión regular para que lo capture EXACTAMENTE.
-        # Por ejemplo, si el código es <span class="temp-code">123456</span>
-        # La regex sería: r'<span[^>]*class=["\']temp-code["\'][^>]*>(\d{6})<\/span>'
-        # Si es un número de 6 dígitos genérico, este patrón es un buen punto de partida:
+        # --- AQUÍ ES DONDE PEGARÁS LA NUEVA LÍNEA CON LA REGEX AJUSTADA ---
+        # Por ahora, mantengo la genérica. La ajustarás después de inspeccionar la página.
         match = re.search(r'\b(\d{6})\b', html_pagina_codigo) 
 
         if match:
@@ -226,13 +223,12 @@ def confirmar_hogar_netflix(url_confirmacion):
 
         logging.info(f"Solicitud de confirmación de Hogar exitosa para {url_confirmacion}. Estado: {response.status_code}")
         
-        # Opcional: buscar alguna señal de éxito en el HTML de la respuesta
         if "hogar actualizado" in response.text.lower() or "confirmado" in response.text.lower() or "success" in response.text.lower():
             logging.info("Mensaje de confirmación de hogar encontrado en la respuesta.")
             return True
         else:
             logging.warning("No se encontró un mensaje de confirmación explícito en la respuesta del hogar, pero la solicitud HTTP fue exitosa (200 OK).")
-            return True # Asumimos éxito si no hubo error HTTP
+            return True
             
     except requests.exceptions.Timeout:
         logging.error(f"Tiempo de espera agotado al visitar {url_confirmacion}")
@@ -257,7 +253,7 @@ def manejar_code(message):
         return
 
     correo_busqueda = partes[1].lower()
-    html_correo, error = buscar_ultimo_correo(correo_busqueda, "Código de acceso temporal") [cite: 1]
+    html_correo, error = buscar_ultimo_correo(correo_busqueda, "Código de acceso temporal")
 
     if error:
         bot.reply_to(message, error)
@@ -282,7 +278,7 @@ def manejar_hogar(message):
         return
 
     correo_busqueda = partes[1].lower()
-    html_correo, error = buscar_ultimo_correo(correo_busqueda, "actualizar tu Hogar")
+    html_correo, error = buscar_ultimo_correo(correo_busqueda, "actualizar tu Hogar") 
 
     if error:
         bot.reply_to(message, error)
@@ -302,6 +298,7 @@ def mostrar_correos(message):
     todos = []
     user_id = str(message.from_user.id)
     if user_id in cuentas and isinstance(cuentas[user_id], list):
+        # Asegurarse de que solo se extrae el correo de Netflix, no las credenciales IMAP (que ya no están en cuentas.json)
         for entrada in cuentas[user_id]:
             correo = entrada.split("|")[0] if "|" in entrada else entrada
             todos.append(correo)
