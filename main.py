@@ -147,7 +147,7 @@ def extraer_link_con_token_o_confirmacion(html_content, es_hogar=False):
     if es_hogar:
         boton = soup.find('a', style=lambda value: value and 'background-color:#e50914' in value)
         if not boton:
-             boton = soup.find('a', string=re.compile(r'Sí, la envié yo', re.IGNORECASE))
+             boton = soup.find('a', string=re.compile(r'Sí, la envié yo', re.IGNORECASE)) # Ya confirmado que funciona
         
         if boton and 'href' in boton.attrs:
             link = boton['href']
@@ -178,9 +178,9 @@ def obtener_codigo_de_pagina(url_netflix):
         html_pagina_codigo = response.text
         logging.info("Página de Netflix para código obtenida. Buscando el código...")
         
-        # --- AJUSTE AQUÍ: AHORA BUSCAMOS 4 DÍGITOS EN LUGAR DE 6 ---
-        # Si la estructura HTML cambia, aún podrías necesitar ajustar el contexto (e.g., span, div, strong)
-        match = re.search(r'\b(\d{4})\b', html_pagina_codigo) # CAMBIADO DE \d{6} a \d{4}
+        # --- AJUSTE AQUÍ: AHORA BUSCAMOS 4 DÍGITOS DENTRO DE LA CLASE 'challenge-code' ---
+        # Se busca un div con la clase 'challenge-code' y se extrae el contenido numérico
+        match = re.search(r'<div[^>]*class=["\']challenge-code["\'][^>]*>(\d{4})<\/div>', html_pagina_codigo) # REGEX AJUSTADA CON CONTEXTO HTML
 
         if match:
             codigo = match.group(1)
