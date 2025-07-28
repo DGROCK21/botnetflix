@@ -86,6 +86,7 @@ def consultar_accion_web():
 
     if not es_correo_autorizado(user_email_input):
         logging.warning(f"WEB: Intento de correo no autorizado: {user_email_input}")
+        # Este mensaje es el que NO CAMBIA, como lo pediste.
         return render_template('result.html', status="error", message="⚠️ Correo no autorizado. Por favor, usa un correo registrado en la cuenta @dgplayk.com.")
 
     if not IMAP_USER or not IMAP_PASS:
@@ -106,18 +107,19 @@ def consultar_accion_web():
 
         link = extraer_link_con_token_o_confirmacion(html_correo, es_hogar=False) 
         if link:
-            logging.info(f"WEB: Enlace de token encontrado: {link}. Intentando obtener código de la página.")
             codigo_final = obtener_codigo_de_pagina(link)
             if codigo_final:
                 logging.info(f"WEB: Código obtenido: {codigo_final}")
                 return render_template('result.html', status="success", message=f"✅ Tu código de Netflix es: <strong>{codigo_final}</strong>.<br>Úsalo en tu TV o dispositivo.")
             else:
                 logging.warning("WEB: Se encontró el enlace de código, pero no se pudo extraer el código de la página de Netflix.")
-                return render_template('result.html', status="warning", message="❌ Se encontró el correo con enlace, pero no se pudo extraer el código de Netflix. El formato de la página puede haber cambiado. Contacta al administrador si persiste.")
+                # Mensaje para cuando se encontró el email/enlace pero falló la extracción del código
+                return render_template('result.html', status="warning", message="No se pudo obtener el código activo para esta cuenta.")
         else:
             logging.warning("WEB: No se encontró enlace de código de Netflix en el correo principal.")
-            # Este mensaje es clave cuando no hay un correo coincidente con el asunto.
-            return render_template('result.html', status="warning", message="❌ No se encontró ningún correo con un enlace de código de Netflix reciente. Asegúrate de haber solicitado el código en tu TV o dispositivo Netflix y que el correo haya llegado a la cuenta principal.")
+            # Mensaje para cuando NO se encontró ningún email relevante
+            return render_template('result.html', status="warning", message="No se encontró ninguna solicitud pendiente para esta cuenta.")
+
 
     elif action == 'hogar':
         asunto_clave = "actualizar tu Hogar Netflix" # Ajusta el asunto si es diferente
@@ -132,16 +134,17 @@ def consultar_accion_web():
 
         link_confirmacion = extraer_link_con_token_o_confirmacion(html_correo, es_hogar=True)
         if link_confirmacion:
-            logging.info(f"WEB: Enlace de confirmación de Hogar encontrado: {link_confirmacion}. Intentando confirmar.")
             if confirmar_hogar_netflix(link_confirmacion):
                 logging.info("WEB: Confirmación de hogar exitosa.")
                 return render_template('result.html', status="success", message="🏠 Solicitud de Hogar confirmada exitosamente. Revisa tu Netflix en unos minutos.<br>Es posible que necesites reiniciar la app de Netflix en tu TV.")
             else:
                 logging.error("WEB: Hubo un error al confirmar el hogar.")
-                return render_template('result.html', status="error", message="❌ Se encontró el enlace de hogar, pero hubo un error al confirmarlo. Revisa los logs de Render o contacta al administrador.")
+                # Mensaje para cuando se encontró el email/enlace pero falló la confirmación de hogar
+                return render_template('result.html', status="error", message="No se pudo completar la actualización de hogar para esta cuenta.")
         else:
             logging.warning("WEB: No se encontró enlace de confirmación de Hogar en el correo principal.")
-            return render_template('result.html', status="warning", message="❌ No se encontró ningún correo de actualización de Hogar reciente. Asegúrate de haber solicitado la actualización en tu TV o dispositivo Netflix y que el correo haya llegado a la cuenta principal.")
+            # Mensaje para cuando NO se encontró ningún email relevante
+            return render_template('result.html', status="warning", message="No se encontró ninguna solicitud pendiente para esta cuenta.")
     else:
         logging.warning(f"WEB: Acción no válida recibida: {action}")
         return render_template('result.html', status="error", message="❌ Acción no válida. Por favor, selecciona 'Consultar Código' o 'Actualizar Hogar'.")
@@ -199,9 +202,11 @@ if bot:
             if codigo_final:
                 bot.reply_to(message, f"✅ TELEGRAM: Tu código de Netflix es: `{codigo_final}`")
             else:
-                bot.reply_to(message, "❌ TELEGRAM: Se encontró el enlace de código, pero no se pudo extraer el código de la página de Netflix. Es posible que el formato de la página haya cambiado o que la regex necesite ajuste.")
+                # Mensaje para Telegram cuando se encontró el email/enlace pero falló la extracción del código
+                bot.reply_to(message, "❌ TELEGRAM: No se pudo obtener el código activo para esta cuenta.")
         else:
-            bot.reply_to(message, "❌ TELEGRAM: No se encontró ningún enlace de código de Netflix en el correo. Verifica que el correo haya llegado y contenga el botón 'Obtener código'.")
+            # Mensaje para Telegram cuando NO se encontró ningún email relevante
+            bot.reply_to(message, "❌ TELEGRAM: No se encontró ninguna solicitud pendiente para esta cuenta.")
 
     @bot.message_handler(commands=["hogar"])
     def manejar_hogar_telegram(message):
@@ -233,11 +238,13 @@ if bot:
         link_confirmacion = extraer_link_con_token_o_confirmacion(html_correo, es_hogar=True)
         if link_confirmacion:
             if confirmar_hogar_netflix(link_confirmacion):
-                bot.reply_to(message, "🏠 TELEGRAM: Solicitud de hogar enviada/confirmada exitosamente. Revisa tu Netflix.")
+                bot.reply_to(message, "🏠 TELEGRAM: Solicitud de Hogar confirmada exitosamente. Revisa tu Netflix.")
             else:
-                bot.reply_to(message, "❌ TELEGRAM: Se encontró el enlace de hogar, pero hubo un error al confirmarlo. Revisa los logs de Render.")
+                # Mensaje para Telegram cuando se encontró el email/enlace pero falló la confirmación de hogar
+                bot.reply_to(message, "❌ TELEGRAM: No se pudo completar la actualización de hogar para esta cuenta.")
         else:
-            bot.reply_to(message, "❌ TELEGRAM: No se encontró ningún enlace de confirmación de hogar en el correo. Verifica que el correo haya llegado y contenga el botón 'Sí, la envié yo'.")
+            # Mensaje para Telegram cuando NO se encontró ningún email relevante
+            bot.reply_to(message, "❌ TELEGRAM: No se encontró ninguna solicitud pendiente para esta cuenta.")
 
     @bot.message_handler(commands=["cuentas"])
     def mostrar_correos_telegram(message):
@@ -255,6 +262,7 @@ if bot:
         bot.reply_to(message, texto)
 
 else: # Si no hay BOT_TOKEN, la ruta del webhook debe devolver 200 OK para evitar errores de Render.
+    # Esta ruta es un placeholder si el bot de Telegram no está activo.
     @app.route(f"/{os.getenv('BOT_TOKEN', 'dummy_token')}", methods=["POST"])
     def dummy_webhook_route():
         logging.warning("Webhook de Telegram llamado, pero BOT_TOKEN no está configurado. Ignorando.")
