@@ -120,7 +120,7 @@ def obtener_enlace_confirmacion_final_hogar(url_boton_rojo):
     """
     Visita la URL del botón rojo 'Sí, la envié yo' y extrae el enlace del botón negro 'Confirmar actualización'.
     """
-    try:
+    try: # <-- Inicio del bloque try
         logging.info(f"Visitando URL del botón rojo para obtener el enlace final de confirmación: {url_boton_rojo}")
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.4896.127 Safari/537.36', # User-Agent más actualizado
@@ -160,6 +160,16 @@ def obtener_enlace_confirmacion_final_hogar(url_boton_rojo):
              return response.url # Devolvemos la URL actual de la página donde está el botón
             
         logging.warning("No se encontró el botón de 'Confirmar actualización' ni un formulario de acción para el hogar.")
+        return None
+
+    except requests.exceptions.Timeout: # <-- Bloque except del try principal
+        logging.error(f"Tiempo de espera agotado al visitar {url_boton_rojo}")
+        return None
+    except requests.exceptions.RequestException as e: # <-- Bloque except del try principal
+        logging.error(f"Error de red al intentar obtener el enlace de confirmación de {url_boton_rojo}: {e}")
+        return None
+    except Exception as e: # <-- Bloque except del try principal
+        logging.exception(f"Error inesperado al obtener el enlace de confirmación final: {e}")
         return None
 
 def obtener_codigo_de_pagina(url_netflix):
