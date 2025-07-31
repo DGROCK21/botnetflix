@@ -122,7 +122,8 @@ def consultar_accion_web():
 
 
     elif action == 'hogar':
-        asunto_clave = "actualizar tu Hogar Netflix" # Ajusta el asunto si es diferente
+        # ASUNTO ACTUALIZADO AQUÍ para que coincida exactamente con el correo real de Netflix
+        asunto_clave = "Importante: Cómo actualizar tu Hogar con Netflix" 
         logging.info(f"WEB: Solicitud de hogar para {user_email_input}. Buscando en {IMAP_USER} correo con asunto: '{asunto_clave}'")
         
         # Llama a buscar_ultimo_correo con las credenciales IMAP del bot
@@ -228,7 +229,8 @@ if bot:
             bot.reply_to(message, "⚠️ Correo no autorizado para esta acción.")
             return
 
-        asunto_clave = "actualizar tu Hogar Netflix" # Ajusta el asunto si es diferente
+        # ASUNTO ACTUALIZADO AQUÍ para que coincida exactamente con el correo real de Netflix
+        asunto_clave = "Importante: Cómo actualizar tu Hogar con Netflix" 
         html_correo, error = buscar_ultimo_correo(IMAP_USER, IMAP_PASS, asunto_clave) 
 
         if error:
