@@ -5,7 +5,7 @@ from flask import Flask, render_template, request, redirect, url_for
 from keep_alive import mantener_vivo
 # Importar funciones necesarias desde funciones.py
 # Asegúrate de que estas funciones solo usen los parámetros que les pasas
-from funciones import buscar_ultimo_correo, extraer_link_con_token_o_confirmacion, obtener_codigo_de_pagina, obtener_enlace_confirmacion_final_hogar # <-- Nueva función importada
+from funciones import buscar_ultimo_correo, extraer_link_con_token_o_confirmacion, obtener_codigo_de_pagina, obtener_enlace_confirmacion_final_hogar 
 import telebot # Importamos telebot para la funcionalidad del bot
 
 # Configurar logging para ver mensajes en los logs de Render
@@ -121,8 +121,8 @@ def consultar_accion_web():
             return render_template('result.html', status="warning", message="No se encontró ninguna solicitud pendiente para esta cuenta.")
 
     elif action == 'hogar':
-        # ASUNTO FLEXIBLE: Buscamos una parte constante del asunto para "Actualizar Hogar"
-        asunto_parte_clave = "Solicitud para actualizar el Hogar con Netflix" 
+        # ASUNTO FLEXIBLE Y ACTUALIZADO: Buscamos una parte constante del asunto para "Actualizar Hogar"
+        asunto_parte_clave = "Importante: Cómo actualizar tu Hogar con Netflix" # <-- Asunto actualizado
         logging.info(f"WEB: Solicitud de hogar para {user_email_input}. Buscando en {IMAP_USER} correo que contenga: '{asunto_parte_clave}'")
         
         html_correo, error = buscar_ultimo_correo(IMAP_USER, IMAP_PASS, asunto_parte_clave) 
@@ -241,8 +241,8 @@ if bot:
             bot.reply_to(message, "⚠️ Correo no autorizado para esta acción.")
             return
 
-        # ASUNTO FLEXIBLE: Buscamos una parte constante del asunto para "Actualizar Hogar"
-        asunto_parte_clave = "Solicitud para actualizar el Hogar con Netflix" 
+        # ASUNTO FLEXIBLE Y ACTUALIZADO: Buscamos una parte constante del asunto para "Actualizar Hogar"
+        asunto_parte_clave = "Importante: Cómo actualizar tu Hogar con Netflix" # <-- Asunto actualizado
         html_correo, error = buscar_ultimo_correo(IMAP_USER, IMAP_PASS, asunto_parte_clave) 
 
         if error:
