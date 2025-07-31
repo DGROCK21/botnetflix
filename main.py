@@ -5,7 +5,7 @@ from flask import Flask, render_template, request, redirect, url_for
 from keep_alive import mantener_vivo
 # Importar funciones necesarias desde funciones.py
 # Asegúrate de que estas funciones solo usen los parámetros que les pasas
-from funciones import buscar_ultimo_correo, extraer_link_con_token_o_confirmacion, obtener_codigo_de_pagina, confirmar_hogar_netflix
+from funciones import buscar_ultimo_correo, extraer_link_con_token_o_confirmacion, obtener_codigo_de_pagina # No importamos confirmar_hogar_netflix si lo haremos manual
 import telebot # Importamos telebot para la funcionalidad del bot
 
 # Configurar logging para ver mensajes en los logs de Render
@@ -28,12 +28,16 @@ except json.JSONDecodeError:
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 IMAP_USER = os.getenv("E-MAIL_USER")
 IMAP_PASS = os.getenv("EMAIL_PASS")
+ADMIN_TELEGRAM_ID = os.getenv("ADMIN_TELEGRAM_ID") # Asegúrate de definir esta variable en Render con tu ID de Telegram
 
 if not BOT_TOKEN:
     logging.error("❌ BOT_TOKEN no está definido en las variables de entorno de Render. La funcionalidad de Telegram NO ESTARÁ DISPONIBLE.")
 if not IMAP_USER or not IMAP_PASS:
     logging.error("❌ E-MAIL_USER o EMAIL_PASS no están definidos en las variables de entorno de Render. La funcionalidad de lectura de correos NO ESTARÁ DISPONIBLE.")
     # Si estas no están, el bot no podrá conectarse a Gmail, lo que es crítico.
+if not ADMIN_TELEGRAM_ID:
+    logging.warning("⚠️ ADMIN_TELEGRAM_ID no está definido. No se enviarán notificaciones al administrador.")
+
 
 # Inicializar Flask
 app = Flask(__name__)
@@ -86,7 +90,6 @@ def consultar_accion_web():
 
     if not es_correo_autorizado(user_email_input):
         logging.warning(f"WEB: Intento de correo no autorizado: {user_email_input}")
-        # Este mensaje es el que NO CAMBIA, como lo pediste.
         return render_template('result.html', status="error", message="⚠️ Correo no autorizado. Por favor, usa un correo registrado en la cuenta @dgplayk.com.")
 
     if not IMAP_USER or not IMAP_PASS:
@@ -98,7 +101,6 @@ def consultar_accion_web():
         asunto_clave = "Código de acceso temporal de Netflix" # Ajusta el asunto si es diferente
         logging.info(f"WEB: Solicitud de código para {user_email_input}. Buscando en {IMAP_USER} correo con asunto: '{asunto_clave}'")
         
-        # Llama a buscar_ultimo_correo con las credenciales IMAP del bot
         html_correo, error = buscar_ultimo_correo(IMAP_USER, IMAP_PASS, asunto_clave) 
         
         if error:
@@ -113,20 +115,16 @@ def consultar_accion_web():
                 return render_template('result.html', status="success", message=f"✅ Tu código de Netflix es: <strong>{codigo_final}</strong>.<br>Úsalo en tu TV o dispositivo.")
             else:
                 logging.warning("WEB: Se encontró el enlace de código, pero no se pudo extraer el código de la página de Netflix.")
-                # Mensaje para cuando se encontró el email/enlace pero falló la extracción del código
                 return render_template('result.html', status="warning", message="No se pudo obtener el código activo para esta cuenta.")
         else:
             logging.warning("WEB: No se encontró enlace de código de Netflix en el correo principal.")
-            # Mensaje para cuando NO se encontró ningún email relevante
             return render_template('result.html', status="warning", message="No se encontró ninguna solicitud pendiente para esta cuenta.")
 
-
     elif action == 'hogar':
-        # ASUNTO ACTUALIZADO AQUÍ para que coincida exactamente con el correo real de Netflix
-        asunto_clave = "Importante: Cómo actualizar tu Hogar con Netflix" 
+        # ASUNTO FINAL AJUSTADO: "Solicitaste actualizar tu Hogar con Netflix?"
+        asunto_clave = "Solicitaste actualizar tu Hogar con Netflix?" 
         logging.info(f"WEB: Solicitud de hogar para {user_email_input}. Buscando en {IMAP_USER} correo con asunto: '{asunto_clave}'")
         
-        # Llama a buscar_ultimo_correo con las credenciales IMAP del bot
         html_correo, error = buscar_ultimo_correo(IMAP_USER, IMAP_PASS, asunto_clave) 
         
         if error:
@@ -135,16 +133,23 @@ def consultar_accion_web():
 
         link_confirmacion = extraer_link_con_token_o_confirmacion(html_correo, es_hogar=True)
         if link_confirmacion:
-            if confirmar_hogar_netflix(link_confirmacion):
-                logging.info("WEB: Confirmación de hogar exitosa.")
-                return render_template('result.html', status="success", message="🏠 Solicitud de Hogar confirmada exitosamente. Revisa tu Netflix en unos minutos.<br>Es posible que necesites reiniciar la app de Netflix en tu TV.")
+            # EN LUGAR DE LLAMAR A confirmar_hogar_netflix, AVISAMOS AL ADMINISTRADOR
+            mensaje_administrador = f"🚨 NOTIFICACIÓN DE HOGAR NETFLIX 🚨\n\nEl usuario **{user_email_input}** ha solicitado actualizar el Hogar Netflix.\n\nPor favor, **HAZ CLIC INMEDIATAMENTE** en este enlace para confirmar la actualización:\n{link_confirmacion}\n\n⚠️ Este enlace vence muy rápido (aprox. 15 minutos) y Netflix puede bloquear intentos automatizados."
+            
+            if bot and ADMIN_TELEGRAM_ID:
+                try:
+                    bot.send_message(ADMIN_TELEGRAM_ID, mensaje_administrador, parse_mode='Markdown')
+                    logging.info(f"WEB: Enlace de hogar enviado al admin por Telegram para {user_email_input}.")
+                    return render_template('result.html', status="success", message=f"🏠 Solicitud de Hogar procesada. **El enlace de confirmación ha sido enviado a tu Telegram personal.** Por favor, revísalo y haz clic inmediatamente para confirmar la actualización.<br>Recuerda que este enlace vence rápido.")
+                except Exception as e:
+                    logging.error(f"WEB: Error al enviar mensaje de hogar al admin por Telegram: {e}")
+                    return render_template('result.html', status="error", message=f"❌ Error al notificar al administrador por Telegram. Por favor, contacta al administrador directamente con este enlace: {link_confirmacion}")
             else:
-                logging.error("WEB: Hubo un error al confirmar el hogar.")
-                # Mensaje para cuando se encontró el email/enlace pero falló la confirmación de hogar
-                return render_template('result.html', status="error", message="No se pudo completar la actualización de hogar para esta cuenta.")
+                logging.warning("WEB: No se pudo enviar notificación al admin (bot no inicializado o ADMIN_TELEGRAM_ID no definido).")
+                # Si no hay bot o ID de admin, mostramos el enlace directamente en la web como último recurso
+                return render_template('result.html', status="warning", message=f"❌ El bot no pudo notificarte. Por favor, **HAZ CLIC INMEDIATAMENTE** en este enlace para confirmar la actualización:<br>{link_confirmacion}<br>Recuerda que este enlace vence rápido.")
         else:
             logging.warning("WEB: No se encontró enlace de confirmación de Hogar en el correo principal.")
-            # Mensaje para cuando NO se encontró ningún email relevante
             return render_template('result.html', status="warning", message="No se encontró ninguna solicitud pendiente para esta cuenta.")
     else:
         logging.warning(f"WEB: Acción no válida recibida: {action}")
@@ -203,16 +208,14 @@ if bot:
             if codigo_final:
                 bot.reply_to(message, f"✅ TELEGRAM: Tu código de Netflix es: `{codigo_final}`")
             else:
-                # Mensaje para Telegram cuando se encontró el email/enlace pero falló la extracción del código
                 bot.reply_to(message, "❌ TELEGRAM: No se pudo obtener el código activo para esta cuenta.")
         else:
-            # Mensaje para Telegram cuando NO se encontró ningún email relevante
             bot.reply_to(message, "❌ TELEGRAM: No se encontró ninguna solicitud pendiente para esta cuenta.")
 
     @bot.message_handler(commands=["hogar"])
     def manejar_hogar_telegram(message):
         """
-        Maneja el comando /hogar para actualizar el hogar Netflix vía Telegram.
+        Maneja el comando /hogar para notificar al administrador con el enlace de confirmación.
         """
         if not IMAP_USER or not IMAP_PASS:
             bot.reply_to(message, "❌ Error: La lectura de correos no está configurada en el servidor. Contacta al administrador.")
@@ -229,8 +232,8 @@ if bot:
             bot.reply_to(message, "⚠️ Correo no autorizado para esta acción.")
             return
 
-        # ASUNTO ACTUALIZADO AQUÍ para que coincida exactamente con el correo real de Netflix
-        asunto_clave = "Importante: Cómo actualizar tu Hogar con Netflix" 
+        # ASUNTO FINAL AJUSTADO: "Solicitaste actualizar tu Hogar con Netflix?"
+        asunto_clave = "Solicitaste actualizar tu Hogar con Netflix?" 
         html_correo, error = buscar_ultimo_correo(IMAP_USER, IMAP_PASS, asunto_clave) 
 
         if error:
@@ -239,13 +242,21 @@ if bot:
 
         link_confirmacion = extraer_link_con_token_o_confirmacion(html_correo, es_hogar=True)
         if link_confirmacion:
-            if confirmar_hogar_netflix(link_confirmacion):
-                bot.reply_to(message, "🏠 TELEGRAM: Solicitud de Hogar confirmada exitosamente. Revisa tu Netflix.")
+            # EN LUGAR DE LLAMAR A confirmar_hogar_netflix, AVISAMOS AL ADMINISTRADOR
+            mensaje_administrador = f"🚨 NOTIFICACIÓN DE HOGAR NETFLIX 🚨\n\nEl usuario **{correo_busqueda}** ha solicitado actualizar el Hogar Netflix.\n\nPor favor, **HAZ CLIC INMEDIATAMENTE** en este enlace para confirmar la actualización:\n{link_confirmacion}\n\n⚠️ Este enlace vence muy rápido (aprox. 15 minutos) y Netflix puede bloquear intentos automatizados."
+            
+            if ADMIN_TELEGRAM_ID:
+                try:
+                    bot.send_message(ADMIN_TELEGRAM_ID, mensaje_administrador, parse_mode='Markdown')
+                    logging.info(f"TELEGRAM: Enlace de hogar enviado al admin por Telegram para {correo_busqueda}.")
+                    bot.reply_to(message, f"🏠 Solicitud de Hogar procesada. **El enlace de confirmación ha sido enviado a tu Telegram personal.** Por favor, revísalo y haz clic inmediatamente para confirmar la actualización.<br>Recuerda que este enlace vence rápido.")
+                except Exception as e:
+                    logging.error(f"TELEGRAM: Error al enviar mensaje de hogar al admin por Telegram: {e}")
+                    bot.reply_to(message, f"❌ Error al notificar al administrador por Telegram. Por favor, contacta al administrador directamente con este enlace: {link_confirmacion}")
             else:
-                # Mensaje para Telegram cuando se encontró el email/enlace pero falló la confirmación de hogar
-                bot.reply_to(message, "❌ TELEGRAM: No se pudo completar la actualización de hogar para esta cuenta.")
+                logging.warning("TELEGRAM: ADMIN_TELEGRAM_ID no definido. No se pudo enviar notificación al administrador.")
+                bot.reply_to(message, f"❌ No se pudo notificar al administrador. Por favor, **pídele al administrador que haga clic inmediatamente** en este enlace: {link_confirmacion}\n\n⚠️ Este enlace vence muy rápido.")
         else:
-            # Mensaje para Telegram cuando NO se encontró ningún email relevante
             bot.reply_to(message, "❌ TELEGRAM: No se encontró ninguna solicitud pendiente para esta cuenta.")
 
     @bot.message_handler(commands=["cuentas"])
@@ -264,7 +275,6 @@ if bot:
         bot.reply_to(message, texto)
 
 else: # Si no hay BOT_TOKEN, la ruta del webhook debe devolver 200 OK para evitar errores de Render.
-    # Esta ruta es un placeholder si el bot de Telegram no está activo.
     @app.route(f"/{os.getenv('BOT_TOKEN', 'dummy_token')}", methods=["POST"])
     def dummy_webhook_route():
         logging.warning("Webhook de Telegram llamado, pero BOT_TOKEN no está configurado. Ignorando.")
@@ -278,6 +288,4 @@ if __name__ == "__main__":
     mantener_vivo() # Para asegurar que Render mantenga la app viva
     port = int(os.environ.get("PORT", 8080))
     logging.info(f"Iniciando Flask app en el puerto {port}")
-    # Render se encarga de usar un servidor WSGI como Gunicorn en producción,
-    # así que app.run() aquí es principalmente para desarrollo local.
     app.run(host="0.0.0.0", port=port)
