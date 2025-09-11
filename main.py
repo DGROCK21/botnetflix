@@ -4,7 +4,7 @@ import logging
 from flask import Flask, render_template, request, redirect, url_for
 from keep_alive import mantener_vivo
 # Importar funciones necesarias desde funciones.py
-# Se ha añadido la nueva función de Universal
+# Se ha corregido la forma de importar las funciones
 from funciones import buscar_ultimo_correo, extraer_link_con_token_o_confirmacion, obtener_codigo_de_pagina, obtener_enlace_confirmacion_final_hogar, navegar_y_extraer_universal
 import telebot # Importamos telebot para la funcionalidad del bot
 
@@ -173,33 +173,242 @@ def consultar_accion_web():
 # RUTA NUEVA PARA UNIVERSAL+
 # =====================
 
-# --- Función corregida para extraer el código de Universal+ ---
+@app.route('/universal_code', methods=['POST'])
+def consultar_universal_web():
+    user_email_input = request.form.get('email', '').strip()
+    
+    if not user_email_input:
+        logging.warning("WEB: Solicitud de Universal sin correo electrónico.")
+        return render_template('result.html', status="error", message="❌ Por favor, ingresa tu correo electrónico.")
 
-def extraer_codigo_universal(html_content):
-    """
-    Extrae el código de 6 dígitos del correo de activación de Universal+.
-    """
-    soup = BeautifulSoup(html_content, 'html.parser')
-    
-    # Buscamos un div que contenga el código. El código de Universal+ suele ser de 6 caracteres (letras y números).
-    # Vamos a buscar un div con un font-size grande, o que contenga el texto "Ingresa el código"
-    # Un patrón común es una celda con un estilo de font-size grande y centrado.
-    codigo_div = soup.find('div', style=lambda value: value and 'font-size: 32px' in value and 'font-weight: 700' in value)
-    
-    if codigo_div:
-        codigo = codigo_div.text.strip()
-        # Verificamos si el código tiene 6 caracteres y es alfanumérico
-        if re.fullmatch(r'[A-Z0-9]{6}', codigo):
-            logging.info(f"Código de Universal+ encontrado: {codigo}")
-            return codigo
-    
-    # Fallback: Si no lo encontramos en la etiqueta div, buscamos el código con una expresión regular más amplia
-    match = re.search(r'[\s](([A-Z0-9]{6}))[\s]', html_content)
-    if match:
-        codigo = match.group(1).strip()
-        if re.fullmatch(r'[A-Z0-9]{6}', codigo):
-            logging.info(f"Código de Universal+ encontrado (regex): {codigo}")
-            return codigo
+    # Usamos la nueva función para verificar el correo y la plataforma
+    if not es_correo_autorizado(user_email_input, "universal"):
+        logging.warning(f"WEB: Intento de correo no autorizado para Universal: {user_email_input}")
+        return render_template('result.html', status="error", message="⚠️ Correo no autorizado para Universal. Por favor, usa un correo registrado.")
 
-    logging.warning("No se pudo encontrar el código de Universal+ en el correo.")
-    return None
+    if not IMAP_USER or not IMAP_PASS:
+        logging.error("WEB: E-MAIL_USER o EMAIL_PASS no definidos. La funcionalidad de lectura de correos no es válida.")
+        return render_template('result.html', status="error", message="❌ Error interno del servidor: La configuración de lectura de correos no es válida. Contacta al administrador del servicio.")
+
+    # Usamos la nueva función para Universal
+    codigo_universal, error = navegar_y_extraer_universal(IMAP_USER, IMAP_PASS)
+    
+    if error:
+        logging.error(f"WEB: Error al obtener código de Universal: {error}")
+        return render_template('result.html', status="error", message=error)
+    
+    if codigo_universal:
+        logging.info(f"WEB: Código de Universal+ obtenido: {codigo_universal}")
+        return render_template('result.html', status="success", message=f"✅ Tu código de Universal+ es: <strong>{codigo_universal}</strong>.<br>Úsalo en la página de activación.")
+    else:
+        logging.warning("WEB: No se pudo obtener el código de Universal+.")
+        return render_template('result.html', status="warning", message="❌ No se pudo encontrar un código de Universal+ reciente. Asegúrate de haberlo solicitado y que el correo haya llegado.")
+
+
+# =====================
+# Comandos del bot de Telegram (Webhook)
+# =====================
+
+if bot:
+    @app.route(f"/{BOT_TOKEN}", methods=["POST"])
+    def recibir_update():
+        """
+        Ruta para recibir actualizaciones del webhook de Telegram.
+        """
+        if request.headers.get('content-type') == 'application/json':
+            json_str = request.get_data().decode("utf-8")
+            update = telebot.types.Update.de_json(json_str)
+            bot.process_new_updates([update])
+            return "", 200 # Respuesta exitosa para Telegram
+        else:
+            logging.warning("TELEGRAM: Encabezado Content-Type incorrecto en la solicitud del webhook.")
+            return "Bad Request", 400
+
+    @bot.message_handler(commands=["code"])
+    def manejar_code_telegram(message):
+        """
+        Maneja el comando /code para obtener un código de Netflix vía Telegram.
+        """
+        if not IMAP_USER or not IMAP_PASS:
+            bot.reply_to(message, "❌ Error: La lectura de correos no está configurada en el servidor. Contacta al administrador.")
+            return
+
+        bot.reply_to(message, "TELEGRAM: Buscando correo de código, por favor espera unos momentos...")
+        partes = message.text.split()
+        if len(partes) != 2:
+            bot.reply_to(message, "❌ Uso: /code tu_correo_netflix@dgplayk.com")
+            return
+
+        correo_busqueda = partes[1].lower()
+        # Aquí también debemos verificar si el ID del usuario de Telegram está autorizado.
+        user_id = str(message.from_user.id)
+        es_autorizado = False
+        if user_id in cuentas:
+            for entrada in cuentas[user_id]:
+                correo_en_lista = entrada.split("|")[0].lower()
+                if correo_en_lista == correo_busqueda and entrada.endswith("|netflix"):
+                    es_autorizado = True
+                    break
+        
+        if not es_autorizado:
+             bot.reply_to(message, "⚠️ Correo no autorizado o no asignado para esta plataforma.")
+             return
+        
+        asunto_clave = "Código de acceso temporal de Netflix" # Asunto para códigos
+        html_correo, error = buscar_ultimo_correo(IMAP_USER, IMAP_PASS, asunto_clave) 
+
+        if error:
+            bot.reply_to(message, error)
+            return
+
+        link = extraer_link_con_token_o_confirmacion(html_correo, es_hogar=False) 
+        if link:
+            codigo_final = obtener_codigo_de_pagina(link)
+            if codigo_final:
+                bot.reply_to(message, f"✅ TELEGRAM: Tu código de Netflix es: `{codigo_final}`")
+            else:
+                bot.reply_to(message, "❌ TELEGRAM: No se pudo obtener el código activo para esta cuenta.")
+        else:
+            bot.reply_to(message, "❌ TELEGRAM: No se encontró ninguna solicitud pendiente para esta cuenta.")
+
+    @bot.message_handler(commands=["hogar"])
+    def manejar_hogar_telegram(message):
+        """
+        Maneja el comando /hogar para notificar al administrador con el enlace de confirmación.
+        """
+        if not IMAP_USER or not IMAP_PASS:
+            bot.reply_to(message, "❌ Error: La lectura de correos no está configurada en el servidor. Contacta al administrador.")
+            return
+
+        bot.reply_to(message, "TELEGRAM: Buscando correo de hogar, por favor espera unos momentos...")
+        partes = message.text.split()
+        if len(partes) != 2:
+            bot.reply_to(message, "❌ Uso: /hogar tu_correo_netflix@dgplayk.com")
+            return
+
+        correo_busqueda = partes[1].lower()
+        # Aquí también debemos verificar si el ID del usuario de Telegram está autorizado.
+        user_id = str(message.from_user.id)
+        es_autorizado = False
+        if user_id in cuentas:
+            for entrada in cuentas[user_id]:
+                correo_en_lista = entrada.split("|")[0].lower()
+                if correo_en_lista == correo_busqueda and entrada.endswith("|netflix"):
+                    es_autorizado = True
+                    break
+        
+        if not es_autorizado:
+            bot.reply_to(message, "⚠️ Correo no autorizado o no asignado para esta plataforma.")
+            return
+
+        # ASUNTO FLEXIBLE Y ACTUALIZADO: Buscamos una parte constante del asunto para "Actualizar Hogar"
+        asunto_parte_clave = "Importante: Cómo actualizar tu Hogar con Netflix" 
+        html_correo, error = buscar_ultimo_correo(IMAP_USER, IMAP_PASS, asunto_parte_clave) 
+
+        if error:
+            bot.reply_to(message, error)
+            return
+
+        link_boton_rojo = extraer_link_con_token_o_confirmacion(html_correo, es_hogar=True)
+        
+        if link_boton_rojo:
+            logging.info(f"TELEGRAM: Enlace del botón rojo 'Sí, la envié yo' encontrado: {link_boton_rojo}. Intentando obtener enlace final de confirmación...")
+            
+            enlace_final_confirmacion = obtener_enlace_confirmacion_final_hogar(link_boton_rojo)
+
+            if enlace_final_confirmacion:
+                # *** CAMBIO CLAVE AQUÍ: EN EL COMANDO TELEGRAM, MUESTRA EL ENLACE DIRECTAMENTE EN EL CHAT ***
+                mensaje_telegram_usuario = f"🏠 Solicitud de Hogar procesada. Por favor, **HAZ CLIC INMEDIATAMENTE** en este enlace para confirmar la actualización:\n{enlace_final_confirmacion}\n\n⚠️ Este enlace vence muy rápido. Si ya lo has usado o ha pasado mucho tiempo, es posible que debas solicitar una nueva actualización en tu TV."
+                
+                # Opcional: También enviamos a Telegram del admin como backup o notificación extra (si es diferente al usuario que inició el comando)
+                # Si el usuario que usa el comando /hogar es el ADMIN_TELEGRAM_ID, no hace falta enviar dos veces.
+                # Considerar si quieres que el ADMIN_TELEGRAM_ID sea diferente al ID de los usuarios autorizados.
+                if ADMIN_TELEGRAM_ID and str(message.from_user.id) != ADMIN_TELEGRAM_ID:
+                    mensaje_telegram_admin = f"🚨 NOTIFICACIÓN DE HOGAR NETFLIX (TELEGRAM) 🚨\n\nEl usuario **{correo_busqueda}** ha solicitado actualizar el Hogar Netflix.\n\nEl enlace también se mostró al usuario. Si el usuario no puede acceder, **HAZ CLIC INMEDIATAMENTE AQUÍ**:\n{enlace_final_confirmacion}\n\n⚠️ Este enlace vence muy rápido."
+                    try:
+                        bot.send_message(ADMIN_TELEGRAM_ID, mensaje_telegram_admin, parse_mode='Markdown')
+                        logging.info(f"TELEGRAM: Enlace de hogar final enviado al admin por Telegram (adicional) para {correo_busqueda}.")
+                    except Exception as e:
+                        logging.error(f"TELEGRAM: Error al enviar notificación ADICIONAL por Telegram: {e}")
+                
+                bot.reply_to(message, mensaje_telegram_usuario, parse_mode='Markdown')
+
+            else:
+                logging.warning("TELEGRAM: No se pudo extraer el enlace de confirmación final del botón negro.")
+                bot.reply_to(message, "❌ TELEGRAM: No se pudo obtener el enlace de confirmación final. El formato de la página puede haber cambiado.")
+        else:
+            bot.reply_to(message, "❌ TELEGRAM: No se encontró ninguna solicitud pendiente para esta cuenta.")
+            
+    # Manejador del comando para Universal+
+    @bot.message_handler(commands=["universal"])
+    def manejar_universal_telegram(message):
+        """
+        Maneja el comando /universal para obtener un código de Universal+ vía Telegram.
+        """
+        if not IMAP_USER or not IMAP_PASS:
+            bot.reply_to(message, "❌ Error: La lectura de correos no está configurada en el servidor. Contacta al administrador.")
+            return
+
+        bot.reply_to(message, "TELEGRAM: Buscando correo de Universal+, por favor espera unos momentos...")
+        partes = message.text.split()
+        if len(partes) != 2:
+            bot.reply_to(message, "❌ Uso: /universal tu_correo_universal@dgplays.com")
+            return
+
+        correo_busqueda = partes[1].lower()
+        # Verificamos si el ID de Telegram y el correo están autorizados para la plataforma Universal
+        user_id = str(message.from_user.id)
+        es_autorizado = False
+        if user_id in cuentas:
+            for entrada in cuentas[user_id]:
+                correo_en_lista = entrada.split("|")[0].lower()
+                if correo_en_lista == correo_busqueda and entrada.endswith("|universal"):
+                    es_autorizado = True
+                    break
+        
+        if not es_autorizado:
+             bot.reply_to(message, "⚠️ Correo no autorizado o no asignado para esta plataforma.")
+             return
+        
+        codigo_universal, error = navegar_y_extraer_universal(IMAP_USER, IMAP_PASS)
+        
+        if error:
+            bot.reply_to(message, error)
+            return
+        
+        if codigo_universal:
+            bot.reply_to(message, f"✅ TELEGRAM: Tu código de Universal+ es: `{codigo_universal}`")
+        else:
+            bot.reply_to(message, "❌ TELEGRAM: No se pudo encontrar un código de Universal+ reciente.")
+
+
+    @bot.message_handler(commands=["cuentas"])
+    def mostrar_correos_telegram(message):
+        """
+        Maneja el comando /cuentas para mostrar los correos autorizados.
+        """
+        todos = []
+        user_id = str(message.from_user.id)
+        if user_id in cuentas and isinstance(cuentas[user_id], list):
+            for entrada in cuentas[user_id]:
+                correo = entrada.split("|")[0] if "|" in entrada else entrada
+                todos.append(correo)
+
+        texto = "📋 Correos registrados para tu ID:\n" + "\n".join(sorted(list(set(todos)))) if todos else "⚠️ No hay correos registrados para tu ID."
+        bot.reply_to(message, texto)
+
+else: # Si no hay BOT_TOKEN, la ruta del webhook debe devolver 200 OK para evitar errores de Render.
+    @app.route(f"/{os.getenv('BOT_TOKEN', 'dummy_token')}", methods=["POST"])
+    def dummy_webhook_route():
+        logging.warning("Webhook de Telegram llamado, pero BOT_TOKEN no está configurado. Ignorando.")
+        return "", 200
+
+# =====================
+# Inicio de la aplicación Flask
+# =====================
+
+if __name__ == "__main__":
+    mantener_vivo() # Para asegurar que Render mantenga la app viva
+    port = int(os.environ.get("PORT", 8080))
+    logging.info(f"Iniciando Flask app en el puerto {port}")
+    app.run(host="0.0.0.0", port=port)
