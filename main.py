@@ -135,20 +135,16 @@ def consultar_accion_web():
             logging.error(f"WEB: Error al buscar correo para hogar: {error}")
             return render_template('result.html', status="error", message=error)
 
-        # Primero extraemos el enlace del botón rojo "Sí, la envié yo" del correo inicial
         link_boton_rojo = extraer_link_con_token_o_confirmacion(html_correo, es_hogar=True)
         
         if link_boton_rojo:
             logging.info(f"WEB: Enlace del botón rojo 'Sí, la envié yo' encontrado: {link_boton_rojo}. Intentando obtener enlace final de confirmación...")
             
-            # NUEVA LLAMADA: Visitamos el enlace del botón rojo y extraemos el enlace del botón negro "Confirmar actualización"
             enlace_final_confirmacion = obtener_enlace_confirmacion_final_hogar(link_boton_rojo)
 
             if enlace_final_confirmacion:
-                # *** CAMBIO CLAVE AQUÍ: MUESTRA EL ENLACE DIRECTAMENTE EN LA WEB ***
                 mensaje_web = f"✅ Solicitud de Hogar procesada. Por favor, **HAZ CLIC INMEDIATAMENTE** en este enlace para confirmar la actualización:<br><br><strong><a href='{enlace_final_confirmacion}' target='_blank'>{enlace_final_confirmacion}</a></strong><br><br>⚠️ Este enlace vence muy rápido. Si ya lo has usado o ha pasado mucho tiempo, es posible que debas solicitar una nueva actualización en tu TV."
                 
-                # Opcional: También enviamos a Telegram como backup o notificación extra
                 if bot and ADMIN_TELEGRAM_ID:
                     mensaje_telegram_admin = f"🚨 NOTIFICACIÓN DE HOGAR NETFLIX (WEB) 🚨\n\nEl usuario **{user_email_input}** ha solicitado actualizar el Hogar Netflix.\n\nEl enlace también se mostró en la web. Si el usuario no puede acceder, **HAZ CLIC INMEDIATAMENTE AQUÍ**:\n{enlace_final_confirmacion}\n\n⚠️ Este enlace vence muy rápido."
                     try:
@@ -317,13 +313,9 @@ if bot:
             enlace_final_confirmacion = obtener_enlace_confirmacion_final_hogar(link_boton_rojo)
 
             if enlace_final_confirmacion:
-                # *** CAMBIO CLAVE AQUÍ: EN EL COMANDO TELEGRAM, MUESTRA EL ENLACE DIRECTAMENTE EN EL CHAT ***
                 mensaje_telegram_usuario = f"🏠 Solicitud de Hogar procesada. Por favor, **HAZ CLIC INMEDIATAMENTE** en este enlace para confirmar la actualización:\n{enlace_final_confirmacion}\n\n⚠️ Este enlace vence muy rápido. Si ya lo has usado o ha pasado mucho tiempo, es posible que debas solicitar una nueva actualización en tu TV."
                 
-                # Opcional: También enviamos a Telegram del admin como backup o notificación extra (si es diferente al usuario que inició el comando)
-                # Si el usuario que usa el comando /hogar es el ADMIN_TELEGRAM_ID, no hace falta enviar dos veces.
-                # Considerar si quieres que el ADMIN_TELEGRAM_ID sea diferente al ID de los usuarios autorizados.
-                if ADMIN_TELEGRAM_ID and str(message.from_user.id) != ADMIN_TELEGRAM_ID:
+                if bot and ADMIN_TELEGRAM_ID:
                     mensaje_telegram_admin = f"🚨 NOTIFICACIÓN DE HOGAR NETFLIX (TELEGRAM) 🚨\n\nEl usuario **{correo_busqueda}** ha solicitado actualizar el Hogar Netflix.\n\nEl enlace también se mostró al usuario. Si el usuario no puede acceder, **HAZ CLIC INMEDIATAMENTE AQUÍ**:\n{enlace_final_confirmacion}\n\n⚠️ Este enlace vence muy rápido."
                     try:
                         bot.send_message(ADMIN_TELEGRAM_ID, mensaje_telegram_admin, parse_mode='Markdown')
