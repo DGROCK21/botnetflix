@@ -209,3 +209,52 @@ def obtener_codigo_de_pagina(url_netflix):
 
 # La función confirmar_hogar_netflix original se elimina porque la acción es asistida manualmente.
 # Si el usuario quiere el enlace para el clic final, la nueva función `obtener_enlace_confirmacion_final_hogar` se encargará de eso.
+
+
+# --- Nuevas funciones para Universal+ ---
+
+def extraer_codigo_universal(html_content):
+    """
+    Extrae el código de 6 dígitos del correo de activación de Universal+.
+    """
+    soup = BeautifulSoup(html_content, 'html.parser')
+    
+    # Universal usa una tabla con el código
+    # Buscamos una celda con un estilo de font-size grande y centrado
+    codigo_div = soup.find('div', style=lambda value: value and 'font-size: 32px' in value and 'font-weight: 700' in value)
+    
+    if codigo_div:
+        codigo = codigo_div.text.strip()
+        logging.info(f"Código de Universal+ encontrado: {codigo}")
+        return codigo
+    
+    # También podemos buscar por el texto del código si el formato cambia
+    match = re.search(r'([A-Z0-9]{6})', html_content)
+    if match:
+        codigo = match.group(1)
+        logging.info(f"Código de Universal+ encontrado (regex): {codigo}")
+        return codigo
+
+    logging.warning("No se pudo encontrar el código de Universal+ en el correo.")
+    return None
+
+# --- Nueva función de navegación para Universal+ (si fuera necesario) ---
+# En este caso, el cliente lo hace a mano, así que solo necesitas el extractor.
+
+def navegar_y_extraer_universal(usuario_imap, contrasena_imap):
+    """
+    Busca el correo de Universal+ y extrae el código.
+    """
+    asunto_clave = "Universal+ código de activación"
+    html_correo, error = buscar_ultimo_correo(usuario_imap, contrasena_imap, asunto_clave)
+    
+    if error:
+        return None, error
+        
+    codigo = extraer_codigo_universal(html_correo)
+    
+    if codigo:
+        return codigo, None
+    else:
+        return None, "❌ No se pudo encontrar el código de activación en el correo de Universal+."
+

@@ -4,8 +4,8 @@ import logging
 from flask import Flask, render_template, request, redirect, url_for
 from keep_alive import mantener_vivo
 # Importar funciones necesarias desde funciones.py
-# Asegúrate de que estas funciones solo usen los parámetros que les pasas
-from funciones import buscar_ultimo_correo, extraer_link_con_token_o_confirmacion, obtener_codigo_de_pagina, obtener_enlace_confirmacion_final_hogar 
+# Se ha añadido la nueva función de Universal
+from funciones import buscar_ultimo_correo, extraer_link_con_token_o_confirmacion, obtener_codigo_de_pagina, obtener_enlace_confirmacion_final_hogar, navegar_y_extraer_universal
 import telebot # Importamos telebot para la funcionalidad del bot
 
 # Configurar logging para ver mensajes en los logs de Render
@@ -164,6 +164,41 @@ def consultar_accion_web():
     else:
         logging.warning(f"WEB: Acción no válida recibida: {action}")
         return render_template('result.html', status="error", message="❌ Acción no válida. Por favor, selecciona 'Consultar Código' o 'Actualizar Hogar'.")
+
+# =====================
+# RUTA NUEVA PARA UNIVERSAL+
+# =====================
+
+@app.route('/universal_code', methods=['POST'])
+def consultar_universal_web():
+    user_email_input = request.form.get('email', '').strip()
+    
+    if not user_email_input:
+        logging.warning("WEB: Solicitud de Universal sin correo electrónico.")
+        return render_template('result.html', status="error", message="❌ Por favor, ingresa tu correo electrónico.")
+
+    if not es_correo_autorizado(user_email_input):
+        logging.warning(f"WEB: Intento de correo no autorizado para Universal: {user_email_input}")
+        return render_template('result.html', status="error", message="⚠️ Correo no autorizado. Por favor, usa un correo registrado.")
+
+    if not IMAP_USER or not IMAP_PASS:
+        logging.error("WEB: E-MAIL_USER o EMAIL_PASS no definidos. La funcionalidad de lectura de correos no es válida.")
+        return render_template('result.html', status="error", message="❌ Error interno del servidor: La configuración de lectura de correos no es válida. Contacta al administrador del servicio.")
+
+    # Usamos la nueva función para Universal
+    codigo_universal, error = navegar_y_extraer_universal(IMAP_USER, IMAP_PASS)
+    
+    if error:
+        logging.error(f"WEB: Error al obtener código de Universal: {error}")
+        return render_template('result.html', status="error", message=error)
+    
+    if codigo_universal:
+        logging.info(f"WEB: Código de Universal+ obtenido: {codigo_universal}")
+        return render_template('result.html', status="success", message=f"✅ Tu código de Universal+ es: <strong>{codigo_universal}</strong>.<br>Úsalo en la página de activación.")
+    else:
+        logging.warning("WEB: No se pudo obtener el código de Universal+.")
+        return render_template('result.html', status="warning", message="❌ No se pudo encontrar un código de Universal+ reciente. Asegúrate de haberlo solicitado y que el correo haya llegado.")
+
 
 # =====================
 # Comandos del bot de Telegram (Webhook)
