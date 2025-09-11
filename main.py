@@ -352,4 +352,63 @@ if bot:
         bot.reply_to(message, "TELEGRAM: Buscando correo de Universal+, por favor espera unos momentos...")
         partes = message.text.split()
         if len(partes) != 2:
-            bot.reply_to(message, "❌ Uso: /universal tu_correo_universal@dgplays.
+            bot.reply_to(message, "❌ Uso: /universal tu_correo_universal@dgplays.com")
+            return
+
+        correo_busqueda = partes[1].lower()
+        # Verificamos si el ID de Telegram y el correo están autorizados para la plataforma Universal
+        user_id = str(message.from_user.id)
+        es_autorizado = False
+        if user_id in cuentas:
+            for entrada in cuentas[user_id]:
+                correo_en_lista = entrada.split("|")[0].lower()
+                if correo_en_lista == correo_busqueda and entrada.endswith("|universal"):
+                    es_autorizado = True
+                    break
+        
+        if not es_autorizado:
+             bot.reply_to(message, "⚠️ Correo no autorizado o no asignado para esta plataforma.")
+             return
+        
+        codigo_universal, error = navegar_y_extraer_universal(IMAP_USER, IMAP_PASS)
+        
+        if error:
+            bot.reply_to(message, error)
+            return
+        
+        if codigo_universal:
+            bot.reply_to(message, f"✅ TELEGRAM: Tu código de Universal+ es: `{codigo_universal}`")
+        else:
+            bot.reply_to(message, "❌ TELEGRAM: No se pudo encontrar un código de Universal+ reciente.")
+
+
+    @bot.message_handler(commands=["cuentas"])
+    def mostrar_correos_telegram(message):
+        """
+        Maneja el comando /cuentas para mostrar los correos autorizados.
+        """
+        todos = []
+        user_id = str(message.from_user.id)
+        if user_id in cuentas and isinstance(cuentas[user_id], list):
+            for entrada in cuentas[user_id]:
+                correo = entrada.split("|")[0] if "|" in entrada else entrada
+                todos.append(correo)
+
+        texto = "📋 Correos registrados para tu ID:\n" + "\n".join(sorted(list(set(todos)))) if todos else "⚠️ No hay correos registrados para tu ID."
+        bot.reply_to(message, texto)
+
+else: # Si no hay BOT_TOKEN, la ruta del webhook debe devolver 200 OK para evitar errores de Render.
+    @app.route(f"/{os.getenv('BOT_TOKEN', 'dummy_token')}", methods=["POST"])
+    def dummy_webhook_route():
+        logging.warning("Webhook de Telegram llamado, pero BOT_TOKEN no está configurado. Ignorando.")
+        return "", 200
+
+# =====================
+# Inicio de la aplicación Flask
+# =====================
+
+if __name__ == "__main__":
+    mantener_vivo() # Para asegurar que Render mantenga la app viva
+    port = int(os.environ.get("PORT", 8080))
+    logging.info(f"Iniciando Flask app en el puerto {port}")
+    app.run(host="0.0.0.0", port=port)
