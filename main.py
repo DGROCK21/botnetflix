@@ -53,20 +53,23 @@ else:
 # Funciones auxiliares para la web y el bot de Telegram
 # =====================
 
-def es_correo_autorizado(correo_usuario):
+def es_correo_autorizado(correo_usuario, plataforma_requerida):
     """
-    Verifica si el correo de usuario (ej. @dgplayk.com) pertenece a una de las cuentas autorizadas en cuentas.json.
+    Verifica si el correo de usuario pertenece a una de las cuentas autorizadas y a la plataforma correcta.
     """
     if not cuentas:
-        logging.warning("No hay cuentas cargadas para validación. Todos los correos serán rechazados por el bot.")
+        logging.warning("No hay cuentas cargadas para validación. Todos los correos serán rechazados.")
         return False
-        
-    for user_id, correos_list in cuentas.items():
+
+    # Itera sobre los valores del diccionario (las listas de correos)
+    for correos_list in cuentas.values():
         for entrada in correos_list:
-            # La entrada puede ser "correo@dominio.com" o "correo@dominio.com|user_imap|pass_imap"
-            # Nos interesa solo la primera parte para comparar con el input del usuario
-            correo_en_lista = entrada.split("|")[0].lower()
-            if correo_en_lista == correo_usuario.lower():
+            partes = entrada.split("|")
+            correo_en_lista = partes[0].lower()
+            etiqueta_plataforma = partes[1].lower() if len(partes) > 1 else "ninguna"
+            
+            # Compara el correo y la etiqueta de la plataforma
+            if correo_en_lista == correo_usuario.lower() and etiqueta_plataforma == plataforma_requerida.lower():
                 return True
     return False
 
@@ -88,9 +91,10 @@ def consultar_accion_web():
         logging.warning("WEB: Solicitud sin correo electrónico.")
         return render_template('result.html', status="error", message="❌ Por favor, ingresa tu correo electrónico.")
 
-    if not es_correo_autorizado(user_email_input):
-        logging.warning(f"WEB: Intento de correo no autorizado: {user_email_input}")
-        return render_template('result.html', status="error", message="⚠️ Correo no autorizado. Por favor, usa un correo registrado en la cuenta @dgplayk.com.")
+    # Usamos la nueva función para verificar el correo y la plataforma
+    if not es_correo_autorizado(user_email_input, "netflix"):
+        logging.warning(f"WEB: Intento de correo no autorizado para Netflix: {user_email_input}")
+        return render_template('result.html', status="error", message="⚠️ Correo no autorizado para Netflix. Por favor, usa un correo registrado en la cuenta @dgplayk.com.")
 
     if not IMAP_USER or not IMAP_PASS:
         logging.error("WEB: E-MAIL_USER o EMAIL_PASS no definidos. La funcionalidad de lectura de correos no es válida.")
@@ -177,9 +181,10 @@ def consultar_universal_web():
         logging.warning("WEB: Solicitud de Universal sin correo electrónico.")
         return render_template('result.html', status="error", message="❌ Por favor, ingresa tu correo electrónico.")
 
-    if not es_correo_autorizado(user_email_input):
+    # Usamos la nueva función para verificar el correo y la plataforma
+    if not es_correo_autorizado(user_email_input, "universal"):
         logging.warning(f"WEB: Intento de correo no autorizado para Universal: {user_email_input}")
-        return render_template('result.html', status="error", message="⚠️ Correo no autorizado. Por favor, usa un correo registrado.")
+        return render_template('result.html', status="error", message="⚠️ Correo no autorizado para Universal. Por favor, usa un correo registrado.")
 
     if not IMAP_USER or not IMAP_PASS:
         logging.error("WEB: E-MAIL_USER o EMAIL_PASS no definidos. La funcionalidad de lectura de correos no es válida.")
@@ -235,8 +240,18 @@ if bot:
             return
 
         correo_busqueda = partes[1].lower()
-        if not es_correo_autorizado(correo_busqueda):
-             bot.reply_to(message, "⚠️ Correo no autorizado para esta acción.")
+        # Aquí también debemos verificar si el ID del usuario de Telegram está autorizado.
+        user_id = str(message.from_user.id)
+        es_autorizado = False
+        if user_id in cuentas:
+            for entrada in cuentas[user_id]:
+                correo_en_lista = entrada.split("|")[0].lower()
+                if correo_en_lista == correo_busqueda and entrada.endswith("|netflix"):
+                    es_autorizado = True
+                    break
+        
+        if not es_autorizado:
+             bot.reply_to(message, "⚠️ Correo no autorizado o no asignado para esta plataforma.")
              return
         
         asunto_clave = "Código de acceso temporal de Netflix" # Asunto para códigos
@@ -272,8 +287,18 @@ if bot:
             return
 
         correo_busqueda = partes[1].lower()
-        if not es_correo_autorizado(correo_busqueda):
-            bot.reply_to(message, "⚠️ Correo no autorizado para esta acción.")
+        # Aquí también debemos verificar si el ID del usuario de Telegram está autorizado.
+        user_id = str(message.from_user.id)
+        es_autorizado = False
+        if user_id in cuentas:
+            for entrada in cuentas[user_id]:
+                correo_en_lista = entrada.split("|")[0].lower()
+                if correo_en_lista == correo_busqueda and entrada.endswith("|netflix"):
+                    es_autorizado = True
+                    break
+        
+        if not es_autorizado:
+            bot.reply_to(message, "⚠️ Correo no autorizado o no asignado para esta plataforma.")
             return
 
         # ASUNTO FLEXIBLE Y ACTUALIZADO: Buscamos una parte constante del asunto para "Actualizar Hogar"
@@ -313,6 +338,49 @@ if bot:
                 bot.reply_to(message, "❌ TELEGRAM: No se pudo obtener el enlace de confirmación final. El formato de la página puede haber cambiado.")
         else:
             bot.reply_to(message, "❌ TELEGRAM: No se encontró ninguna solicitud pendiente para esta cuenta.")
+            
+    # Manejador del comando para Universal+
+    @bot.message_handler(commands=["universal"])
+    def manejar_universal_telegram(message):
+        """
+        Maneja el comando /universal para obtener un código de Universal+ vía Telegram.
+        """
+        if not IMAP_USER or not IMAP_PASS:
+            bot.reply_to(message, "❌ Error: La lectura de correos no está configurada en el servidor. Contacta al administrador.")
+            return
+
+        bot.reply_to(message, "TELEGRAM: Buscando correo de Universal+, por favor espera unos momentos...")
+        partes = message.text.split()
+        if len(partes) != 2:
+            bot.reply_to(message, "❌ Uso: /universal tu_correo_universal@dgplays.com")
+            return
+
+        correo_busqueda = partes[1].lower()
+        # Verificamos si el ID de Telegram y el correo están autorizados para la plataforma Universal
+        user_id = str(message.from_user.id)
+        es_autorizado = False
+        if user_id in cuentas:
+            for entrada in cuentas[user_id]:
+                correo_en_lista = entrada.split("|")[0].lower()
+                if correo_en_lista == correo_busqueda and entrada.endswith("|universal"):
+                    es_autorizado = True
+                    break
+        
+        if not es_autorizado:
+             bot.reply_to(message, "⚠️ Correo no autorizado o no asignado para esta plataforma.")
+             return
+        
+        codigo_universal, error = navegar_y_extraer_universal(IMAP_USER, IMAP_PASS)
+        
+        if error:
+            bot.reply_to(message, error)
+            return
+        
+        if codigo_universal:
+            bot.reply_to(message, f"✅ TELEGRAM: Tu código de Universal+ es: `{codigo_universal}`")
+        else:
+            bot.reply_to(message, "❌ TELEGRAM: No se pudo encontrar un código de Universal+ reciente.")
+
 
     @bot.message_handler(commands=["cuentas"])
     def mostrar_correos_telegram(message):
