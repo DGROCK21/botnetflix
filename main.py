@@ -230,6 +230,8 @@ def consultar_accion_web():
         else:
             logging.warning("WEB: No se encontró el enlace del botón 'Sí, la envié yo' en el correo principal.")
             return render_template('result.html', status="warning", message="No se encontró ninguna solicitud pendiente para esta cuenta.")
+    elif action == 'universal':
+        return consultar_universal_web()
     else:
         logging.warning(f"WEB: Acción no válida recibida: {action}")
         return render_template('result.html', status="error", message="❌ Acción no válida. Por favor, selecciona 'Consultar Código' o 'Actualizar Hogar'.")
@@ -396,4 +398,5 @@ if bot:
             for entrada in cuentas[user_id]:
                 correo = entrada.split("|")[0] if "|" in entrada else entrada
                 todos.append(correo)
-        texto = "📋 Correos registrados para tu ID:\n" + "\n".join(sorted(list(set(todos)))) if todos else "⚠️ No hay correos registrados para tu
+        texto = "📋 Correos registrados para tu ID:\n" + "\n".join(sorted(list(set(todos)))) if todos else "⚠️ No hay correos registrados para tu ID."
+        bot.reply_to(message,
