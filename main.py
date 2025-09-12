@@ -106,7 +106,7 @@ def consultar_accion_web():
         logging.info(f"WEB: Solicitud de código para {user_email_input}. Buscando en {IMAP_USER} correo con asunto: '{asunto_clave}'")
         
         html_correo, error = buscar_ultimo_correo(IMAP_USER, IMAP_PASS, asunto_clave) 
-        
+
         if error:
             logging.error(f"WEB: Error al buscar correo para código: {error}")
             return render_template('result.html', status="error", message=error)
@@ -130,7 +130,7 @@ def consultar_accion_web():
         logging.info(f"WEB: Solicitud de hogar para {user_email_input}. Buscando en {IMAP_USER} correo que contenga: '{asunto_parte_clave}'")
         
         html_correo, error = buscar_ultimo_correo(IMAP_USER, IMAP_PASS, asunto_parte_clave) 
-        
+
         if error:
             logging.error(f"WEB: Error al buscar correo para hogar: {error}")
             return render_template('result.html', status="error", message=error)
@@ -146,12 +146,12 @@ def consultar_accion_web():
                 mensaje_web = f"✅ Solicitud de Hogar procesada. Por favor, **HAZ CLIC INMEDIATAMENTE** en este enlace para confirmar la actualización:<br><br><strong><a href='{enlace_final_confirmacion}' target='_blank'>{enlace_final_confirmacion}</a></strong><br><br>⚠️ Este enlace vence muy rápido. Si ya lo has usado o ha pasado mucho tiempo, es posible que debas solicitar una nueva actualización en tu TV."
                 
                 if bot and ADMIN_TELEGRAM_ID:
-                    mensaje_telegram_admin = f"🚨 NOTIFICACIÓN DE HOGAR NETFLIX (WEB) 🚨\n\nEl usuario **{user_email_input}** ha solicitado actualizar el Hogar Netflix.\n\nEl enlace también se mostró en la web. Si el usuario no puede acceder, **HAZ CLIC INMEDIATAMENTE AQUÍ**:\n{enlace_final_confirmacion}\n\n⚠️ Este enlace vence muy rápido."
+                    mensaje_telegram_admin = f"🚨 NOTIFICACIÓN DE HOGAR NETFLIX (WEB) 🚨\n\nEl usuario **{user_email_input}** ha solicitado actualizar el Hogar Netflix.\n\nEl enlace también se mostró al usuario. Si el usuario no puede acceder, **HAZ CLIC INMEDIATAMENTE AQUÍ**:\n{enlace_final_confirmacion}\n\n⚠️ Este enlace vence muy rápido."
                     try:
                         bot.send_message(ADMIN_TELEGRAM_ID, mensaje_telegram_admin, parse_mode='Markdown')
                         logging.info(f"WEB: Enlace de hogar final enviado al admin por Telegram (adicional) para {user_email_input}.")
                     except Exception as e:
-                        logging.error(f"WEB: Error al enviar notificación ADICIONAL por Telegram: {e}")
+                        logging.error(f"TELEGRAM: Error al enviar notificación ADICIONAL por Telegram: {e}")
                 
                 return render_template('result.html', status="success", message=mensaje_web)
 
@@ -363,7 +363,7 @@ if bot:
         if codigo_universal:
             bot.reply_to(message, f"✅ TELEGRAM: Tu código de Universal+ es: `{codigo_universal}`")
         else:
-            bot.reply_to(message, "❌ TELEGRAM: No se pudo obtener un código de Universal+ reciente.")
+            bot.reply_to(message, "❌ TELEGRAM: No se pudo encontrar un código de Universal+ reciente.")
 
 
     @bot.message_handler(commands=["cuentas"])
@@ -375,24 +375,4 @@ if bot:
         user_id = str(message.from_user.id)
         if user_id in cuentas and isinstance(cuentas[user_id], list):
             for entrada in cuentas[user_id]:
-                correo = entrada.split("|")[0] if "|" in entrada else entrada
-                todos.append(correo)
-
-        texto = "📋 Correos registrados para tu ID:\n" + "\n".join(sorted(list(set(todos)))) if todos else "⚠️ No hay correos registrados para tu ID."
-        bot.reply_to(message, texto)
-
-else: # Si no hay BOT_TOKEN, la ruta del webhook debe devolver 200 OK para evitar errores de Render.
-    @app.route(f"/{os.getenv('BOT_TOKEN', 'dummy_token')}", methods=["POST"])
-    def dummy_webhook_route():
-        logging.warning("Webhook de Telegram llamado, pero BOT_TOKEN no está configurado. Ignorando.")
-        return "", 200
-
-# =====================
-# Inicio de la aplicación Flask
-# =====================
-
-if __name__ == "__main__":
-    mantener_vivo() # Para asegurar que Render mantenga la app viva
-    port = int(os.environ.get("PORT", 8080))
-    logging.info(f"Iniciando Flask app en el puerto {port}")
-    app.run(host="0.0.0.0", port=port)
+                correo = entrada.
