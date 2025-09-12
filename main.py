@@ -256,4 +256,144 @@ if bot:
             json_str = request.get_data().decode("utf-8")
             update = telebot.types.Update.de_json(json_str)
             bot.process_new_updates([update])
+            return "", 200
+        else:
+            logging.warning("TELEGRAM: Encabezado Content-Type incorrecto.")
+            return "Bad Request", 400
+
+    @bot.message_handler(commands=["code"])
+    def manejar_code_telegram(message):
+        if not IMAP_USER or not IMAP_PASS:
+            bot.reply_to(message, "❌ Error: La lectura de correos no está configurada. Contacta al administrador.")
             return
+        bot.reply_to(message, "TELEGRAM: Buscando correo de código, por favor espera unos momentos...")
+        partes = message.text.split()
+        if len(partes) != 2:
+            bot.reply_to(message, "❌ Uso: /code tu_correo_netflix@dgplayk.com")
+            return
+        correo_busqueda = partes[1].lower()
+        user_id = str(message.from_user.id)
+        es_autorizado = False
+        if user_id in cuentas:
+            for entrada in cuentas[user_id]:
+                correo_en_lista = entrada.split("|")[0].lower()
+                if correo_en_lista == correo_busqueda and entrada.endswith("|netflix"):
+                    es_autorizado = True
+                    break
+        if not es_autorizado:
+             bot.reply_to(message, "⚠️ Correo no autorizado o no asignado para esta plataforma.")
+             return
+        asunto_clave = "Código de acceso temporal de Netflix"
+        html_correo, error = buscar_ultimo_correo(IMAP_USER, IMAP_PASS, asunto_clave)
+        if error:
+            bot.reply_to(message, error)
+            return
+        link = extraer_link_con_token_o_confirmacion(html_correo, es_hogar=False)
+        if link:
+            codigo_final = obtener_codigo_de_pagina(link)
+            if codigo_final:
+                bot.reply_to(message, f"✅ TELEGRAM: Tu código de Netflix es: `{codigo_final}`")
+            else:
+                bot.reply_to(message, "❌ TELEGRAM: No se pudo obtener el código activo para esta cuenta.")
+        else:
+            bot.reply_to(message, "❌ TELEGRAM: No se encontró ninguna solicitud pendiente para esta cuenta.")
+
+    @bot.message_handler(commands=["hogar"])
+    def manejar_hogar_telegram(message):
+        if not IMAP_USER or not IMAP_PASS:
+            bot.reply_to(message, "❌ Error: La lectura de correos no está configurada. Contacta al administrador.")
+            return
+        bot.reply_to(message, "TELEGRAM: Buscando correo de hogar, por favor espera unos momentos...")
+        partes = message.text.split()
+        if len(partes) != 2:
+            bot.reply_to(message, "❌ Uso: /hogar tu_correo_netflix@dgplayk.com")
+            return
+        correo_busqueda = partes[1].lower()
+        user_id = str(message.from_user.id)
+        es_autorizado = False
+        if user_id in cuentas:
+            for entrada in cuentas[user_id]:
+                correo_en_lista = entrada.split("|")[0].lower()
+                if correo_en_lista == correo_busqueda and entrada.endswith("|netflix"):
+                    es_autorizado = True
+                    break
+        if not es_autorizado:
+            bot.reply_to(message, "⚠️ Correo no autorizado o no asignado para esta plataforma.")
+            return
+        asunto_parte_clave = "Importante: Cómo actualizar tu Hogar con Netflix"
+        html_correo, error = buscar_ultimo_correo(IMAP_USER, IMAP_PASS, asunto_parte_clave)
+        if error:
+            bot.reply_to(message, error)
+            return
+        link_boton_rojo = extraer_link_con_token_o_confirmacion(html_correo, es_hogar=True)
+        if link_boton_rojo:
+            logging.info(f"TELEGRAM: Enlace del botón rojo 'Sí, la envié yo' encontrado: {link_boton_rojo}. Intentando obtener enlace final de confirmación...")
+            enlace_final_confirmacion = obtener_enlace_confirmacion_final_hogar(link_boton_rojo)
+            if enlace_final_confirmacion:
+                mensaje_telegram_usuario = f"🏠 Solicitud de Hogar procesada. Por favor, **HAZ CLIC INMEDIATAMENTE** en este enlace para confirmar la actualización:\n{enlace_final_confirmacion}\n\n⚠️ Este enlace vence muy rápido."
+                if ADMIN_TELEGRAM_ID and str(message.from_user.id) != ADMIN_TELEGRAM_ID:
+                    mensaje_telegram_admin = f"🚨 NOTIFICACIÓN DE HOGAR NETFLIX (TELEGRAM) 🚨\n\nEl usuario **{correo_busqueda}** ha solicitado actualizar el Hogar Netflix.\n\nEl enlace también se mostró al usuario. Si el usuario no puede acceder, **HAZ CLIC INMEDIATAMENTE AQUÍ**:\n{enlace_final_confirmacion}\n\n⚠️ Este enlace vence muy rápido."
+                    try:
+                        bot.send_message(ADMIN_TELEGRAM_ID, mensaje_telegram_admin, parse_mode='Markdown')
+                        logging.info(f"TELEGRAM: Enlace de hogar final enviado al admin por Telegram (adicional) para {correo_busqueda}.")
+                    except Exception as e:
+                        logging.error(f"TELEGRAM: Error al enviar notificación ADICIONAL por Telegram: {e}")
+                bot.reply_to(message, mensaje_telegram_usuario, parse_mode='Markdown')
+            else:
+                logging.warning("TELEGRAM: No se pudo extraer el enlace de confirmación final del botón negro.")
+                bot.reply_to(message, "❌ TELEGRAM: No se pudo obtener el enlace de confirmación final. El formato de la página puede haber cambiado.")
+        else:
+            bot.reply_to(message, "❌ TELEGRAM: No se encontró ninguna solicitud pendiente para esta cuenta.")
+    
+    @bot.message_handler(commands=["universal"])
+    def manejar_universal_telegram(message):
+        if not IMAP_USER or not IMAP_PASS:
+            bot.reply_to(message, "❌ Error: La lectura de correos no está configurada. Contacta al administrador.")
+            return
+        bot.reply_to(message, "TELEGRAM: Buscando correo de Universal+, por favor espera unos momentos...")
+        partes = message.text.split()
+        if len(partes) != 2:
+            bot.reply_to(message, "❌ Uso: /universal tu_correo_universal@dgplays.com")
+            return
+        correo_busqueda = partes[1].lower()
+        user_id = str(message.from_user.id)
+        es_autorizado = False
+        if user_id in cuentas:
+            for entrada in cuentas[user_id]:
+                correo_en_lista = entrada.split("|")[0].lower()
+                if correo_en_lista == correo_busqueda and entrada.endswith("|universal"):
+                    es_autorizado = True
+                    break
+        if not es_autorizado:
+             bot.reply_to(message, "⚠️ Correo no autorizado o no asignado para esta plataforma.")
+             return
+        codigo_universal, error = navegar_y_extraer_universal(IMAP_USER, IMAP_PASS)
+        if error:
+            bot.reply_to(message, error)
+            return
+        if codigo_universal:
+            bot.reply_to(message, f"✅ TELEGRAM: Tu código de Universal+ es: `{codigo_universal}`")
+        else:
+            bot.reply_to(message, "❌ TELEGRAM: No se pudo obtener un código de Universal+ reciente.")
+    
+    @bot.message_handler(commands=["cuentas"])
+    def mostrar_correos_telegram(message):
+        todos = []
+        user_id = str(message.from_user.id)
+        if user_id in cuentas and isinstance(cuentas[user_id], list):
+            for entrada in cuentas[user_id]:
+                correo = entrada.split("|")[0] if "|" in entrada else entrada
+                todos.append(correo)
+        texto = "📋 Correos registrados para tu ID:\n" + "\n".join(sorted(list(set(todos)))) if todos else "⚠️ No hay correos registrados para tu ID."
+        bot.reply_to(message, texto)
+else:
+    @app.route(f"/{os.getenv('BOT_TOKEN', 'dummy_token')}", methods=["POST"])
+    def dummy_webhook_route():
+        logging.warning("Webhook de Telegram llamado, pero BOT_TOKEN no está configurado. Ignorando.")
+        return "", 200
+
+if __name__ == "__main__":
+    mantener_vivo()
+    port = int(os.environ.get("PORT", 8080))
+    logging.info(f"Iniciando Flask app en el puerto {port}")
+    app.run(host="0.0.0.0", port=port)
