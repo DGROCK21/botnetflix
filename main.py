@@ -106,7 +106,7 @@ def consultar_accion_web():
         logging.info(f"WEB: Solicitud de código para {user_email_input}. Buscando en {IMAP_USER} correo con asunto: '{asunto_clave}'")
         
         html_correo, error = buscar_ultimo_correo(IMAP_USER, IMAP_PASS, asunto_clave) 
-
+        
         if error:
             logging.error(f"WEB: Error al buscar correo para código: {error}")
             return render_template('result.html', status="error", message=error)
@@ -363,7 +363,7 @@ if bot:
         if codigo_universal:
             bot.reply_to(message, f"✅ TELEGRAM: Tu código de Universal+ es: `{codigo_universal}`")
         else:
-            bot.reply_to(message, "❌ TELEGRAM: No se pudo encontrar un código de Universal+ reciente.")
+            bot.reply_to(message, "❌ TELEGRAM: No se pudo obtener un código de Universal+ reciente.")
 
 
     @bot.message_handler(commands=["cuentas"])
