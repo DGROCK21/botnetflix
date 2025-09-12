@@ -236,14 +236,11 @@ def consultar_accion_web():
             if code_div:
                 codigo = code_div.text.strip()
                 if re.fullmatch(r'[A-Z0-9]{6,7}', codigo):
-                    logging.info(f"✅ Código de Universal+ extraído: {codigo}")
                     return render_template('result.html', status="success", message=f"✅ Tu código de Universal+ es: <strong>{codigo}</strong>.<br>Úsalo en la página de activación.")
                 else:
-                    logging.warning("❌ Se encontró un texto en la etiqueta correcta, pero no coincide con el formato de código.")
-                    return render_template('result.html', status="warning", message="❌ No se pudo extraer el código. El formato no es válido.")
+                    return render_template('result.html', status="warning", message="❌ Se encontró un texto en la etiqueta correcta, pero no coincide con el formato de código.")
             else:
-                logging.warning("❌ No se encontró la etiqueta div con el estilo del código.")
-                return render_template('result.html', status="warning", message="❌ No se pudo encontrar el código de activación. El formato del correo puede haber cambiado.")
+                return render_template('result.html', status="warning", message="❌ No se pudo obtener un código de Universal+ reciente. Asegúrate de haberlo solicitado y que el correo haya llegado.")
         else:
             return render_template('result.html', status="error", message="❌ Acción no válida para Universal.")
             
