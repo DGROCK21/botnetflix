@@ -68,26 +68,38 @@ def buscar_ultimo_correo(imap_user, imap_pass, asunto_clave):
     Busca el último correo con un asunto específico, manejando la codificación de forma robusta.
     """
     try:
-        with MailBox('imap.gmail.com').login(imap_user, imap_pass, 'INBOX') as mailbox:
-            # Buscamos el correo más reciente con el asunto, lo que maneja correctamente la codificación
-            for msg in mailbox.fetch(AND(subject=asunto_clave), reverse=True, limit=1):
-                raw_email = msg.original_bytes
-                email_message = email.message_from_bytes(raw_email)
-                
-                html_content = ""
-                for part in email_message.walk():
-                    content_type = part.get_content_type()
-                    if content_type == "text/html":
-                        charset = part.get_content_charset() or 'utf-8'
-                        html_content = part.get_payload(decode=True).decode(charset, errors='ignore')
-                        break
-                
-                if html_content:
-                    return html_content, None
-                else:
-                    return None, "❌ No se pudo encontrar la parte HTML del correo."
+        mailbox = imap = imaplib.IMAP4_SSL("imap.gmail.com")
+        imap.login(imap_user, imap_pass)
+        imap.select('inbox')
         
-        return None, f"❌ No se encontró ningún correo con el asunto: '{asunto_clave}'"
+        # Codificamos el asunto para que la búsqueda IMAP no falle con caracteres especiales
+        search_criteria = f'(SUBJECT "{asunto_clave}")'.encode('utf-8')
+        status, messages = imap.search(None, search_criteria)
+        
+        if not messages[0]:
+            return None, f"❌ No se encontró ningún correo con el asunto: '{asunto_clave}'"
+        
+        mail_id = messages[0].split()[-1]
+        status, data = imap.fetch(mail_id, '(RFC822)')
+        
+        raw_email = data[0][1]
+        email_message = email.message_from_bytes(raw_email)
+        
+        html_content = ""
+        for part in email_message.walk():
+            content_type = part.get_content_type()
+            if content_type == "text/html":
+                charset = part.get_content_charset() or 'utf-8'
+                html_content = part.get_payload(decode=True).decode(charset, errors='ignore')
+                break
+        
+        imap.close()
+        imap.logout()
+        
+        if html_content:
+            return html_content, None
+        else:
+            return None, "❌ No se pudo encontrar la parte HTML del correo."
     except Exception as e:
         return None, f"❌ Error en la conexión o búsqueda de correo: {str(e)}"
 
@@ -350,42 +362,7 @@ if bot:
     
     @bot.message_handler(commands=["universal"])
     def manejar_universal_telegram(message):
-        if not IMAP_USER or not IMAP_PASS:
-            bot.reply_to(message, "❌ Error: La lectura de correos no está configurada. Contacta al administrador.")
-            return
-        bot.reply_to(message, "TELEGRAM: Buscando correo de Universal+, por favor espera unos momentos...")
-        partes = message.text.split()
-        if len(partes) != 2:
-            bot.reply_to(message, "❌ Uso: /universal tu_correo_universal@dgplays.com")
-            return
-        correo_busqueda = partes[1].lower()
-        user_id = str(message.from_user.id)
-        es_autorizado = False
-        if user_id in cuentas:
-            for entrada in cuentas[user_id]:
-                correo_en_lista = entrada.split("|")[0].lower()
-                if correo_en_lista == correo_busqueda and entrada.endswith("|universal"):
-                    es_autorizado = True
-                    break
-        if not es_autorizado:
-             bot.reply_to(message, "⚠️ Correo no autorizado o no asignado para esta plataforma.")
-             return
-        asunto_clave = "Código de activación Universal+"
-        html_correo, error = buscar_ultimo_correo(IMAP_USER, IMAP_PASS, asunto_clave)
-        if error:
-            bot.reply_to(message, error)
-            return
-        
-        soup = BeautifulSoup(html_correo, 'html.parser')
-        code_div = soup.find('div', style=lambda value: value and 'font-size: 32px' in value and 'font-weight: 700' in value)
-        if code_div:
-            codigo = code_div.text.strip()
-            if re.fullmatch(r'[A-Z0-9]{6,7}', codigo):
-                bot.reply_to(message, f"✅ TELEGRAM: Tu código de Universal+ es: `{codigo}`")
-            else:
-                bot.reply_to(message, "❌ TELEGRAM: Se encontró un texto en la etiqueta correcta, pero no coincide con el formato de código.")
-        else:
-            bot.reply_to(message, "❌ TELEGRAM: No se pudo obtener un código de Universal+ reciente.")
+        bot.reply_to(message, "❌ TELEGRAM: La funcionalidad de Universal+ no está habilitada en esta versión del bot. Por favor, usa /code o /hogar para Netflix.")
     
     @bot.message_handler(commands=["cuentas"])
     def mostrar_correos_telegram(message):
