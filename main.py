@@ -106,7 +106,7 @@ def consultar_accion_web():
         logging.info(f"WEB: Solicitud de código para {user_email_input}. Buscando en {IMAP_USER} correo con asunto: '{asunto_clave}'")
         
         html_correo, error = buscar_ultimo_correo(IMAP_USER, IMAP_PASS, asunto_clave) 
-        
+
         if error:
             logging.error(f"WEB: Error al buscar correo para código: {error}")
             return render_template('result.html', status="error", message=error)
@@ -297,14 +297,6 @@ if bot:
             bot.reply_to(message, "⚠️ Correo no autorizado o no asignado para esta plataforma.")
             return
 
-        # ASUNTO FLEXIBLE Y ACTUALIZADO: Buscamos una parte constante del asunto para "Actualizar Hogar"
-        asunto_parte_clave = "Importante: Cómo actualizar tu Hogar con Netflix" 
-        html_correo, error = buscar_ultimo_correo(IMAP_USER, IMAP_PASS, asunto_parte_clave) 
-
-        if error:
-            bot.reply_to(message, error)
-            return
-
         link_boton_rojo = extraer_link_con_token_o_confirmacion(html_correo, es_hogar=True)
         
         if link_boton_rojo:
@@ -389,4 +381,18 @@ if bot:
         texto = "📋 Correos registrados para tu ID:\n" + "\n".join(sorted(list(set(todos)))) if todos else "⚠️ No hay correos registrados para tu ID."
         bot.reply_to(message, texto)
 
-else: # Si no hay BOT_
+else: # Si no hay BOT_TOKEN, la ruta del webhook debe devolver 200 OK para evitar errores de Render.
+    @app.route(f"/{os.getenv('BOT_TOKEN', 'dummy_token')}", methods=["POST"])
+    def dummy_webhook_route():
+        logging.warning("Webhook de Telegram llamado, pero BOT_TOKEN no está configurado. Ignorando.")
+        return "", 200
+
+# =====================
+# Inicio de la aplicación Flask
+# =====================
+
+if __name__ == "__main__":
+    mantener_vivo() # Para asegurar que Render mantenga la app viva
+    port = int(os.environ.get("PORT", 8080))
+    logging.info(f"Iniciando Flask app en el puerto {port}")
+    app.run(host="0.0.0.0", port=port)
