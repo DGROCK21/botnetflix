@@ -183,6 +183,7 @@ def consultar_accion_web():
         
         # Lógica de Netflix code
         asunto_clave = "Código de acceso temporal de Netflix"
+        logging.info(f"WEB: Solicitud de código para {user_email_input}. Buscando en {IMAP_USER} correo con asunto: '{asunto_clave}'")
         html_correo, error = buscar_ultimo_correo(IMAP_USER, IMAP_PASS, asunto_clave)
         if error:
             return render_template('result.html', status="error", message=error)
@@ -190,10 +191,13 @@ def consultar_accion_web():
         if link:
             codigo_final = obtener_codigo_de_pagina(link)
             if codigo_final:
+                logging.info(f"WEB: Código obtenido: {codigo_final}")
                 return render_template('result.html', status="success", message=f"✅ Tu código de Netflix es: <strong>{codigo_final}</strong>.<br>Úsalo en tu TV o dispositivo.")
             else:
+                logging.warning("WEB: Se encontró el enlace de código, pero no se pudo extraer el código de la página de Netflix.")
                 return render_template('result.html', status="warning", message="No se pudo obtener el código activo para esta cuenta.")
         else:
+            logging.warning("WEB: No se encontró enlace de código de Netflix en el correo principal.")
             return render_template('result.html', status="warning", message="No se encontró ninguna solicitud pendiente para esta cuenta.")
 
     elif action == 'hogar':
@@ -202,11 +206,13 @@ def consultar_accion_web():
         
         # Lógica de Netflix hogar
         asunto_parte_clave = "Importante: Cómo actualizar tu Hogar con Netflix"
+        logging.info(f"WEB: Solicitud de hogar para {user_email_input}. Buscando en {IMAP_USER} correo que contenga: '{asunto_parte_clave}'")
         html_correo, error = buscar_ultimo_correo(IMAP_USER, IMAP_PASS, asunto_parte_clave)
         if error:
             return render_template('result.html', status="error", message=error)
         link_boton_rojo = extraer_link_con_token_o_confirmacion(html_correo, es_hogar=True)
         if link_boton_rojo:
+            logging.info(f"WEB: Enlace del botón rojo 'Sí, la envié yo' encontrado: {link_boton_rojo}. Intentando obtener enlace final de confirmación...")
             enlace_final_confirmacion = obtener_enlace_confirmacion_final_hogar(link_boton_rojo)
             if enlace_final_confirmacion:
                 mensaje_web = f"✅ Solicitud de Hogar procesada. Por favor, **HAZ CLIC INMEDIATAMENTE** en este enlace para confirmar la actualización:<br><br><strong><a href='{enlace_final_confirmacion}' target='_blank'>{enlace_final_confirmacion}</a></strong><br><br>⚠️ Este enlace vence muy rápido. Si ya lo has usado o ha pasado mucho tiempo, es posible que debas solicitar una nueva actualización en tu TV."
@@ -234,7 +240,7 @@ def consultar_accion_web():
         if codigo_universal:
             return render_template('result.html', status="success", message=f"✅ Tu código de Universal+ es: <strong>{codigo_universal}</strong>.<br>Úsalo en la página de activación.")
         else:
-            return render_template('result.html', status="warning", message="❌ No se pudo encontrar un código de Universal+ reciente. Asegúrate de haberlo solicitado y que el correo haya llegado.")
+            return render_template('result.html', status="warning", message="❌ No se pudo obtener un código de Universal+ reciente. Asegúrate de haberlo solicitado y que el correo haya llegado.")
 
     else:
         logging.warning(f"WEB: Acción no válida recibida: {action}")
@@ -245,7 +251,7 @@ def consultar_accion_web():
 # =====================
 
 if bot:
-    @app.route(f"/{os.getenv('BOT_TOKEN', 'dummy_token')}", methods=["POST"])
+    @app.route(f"/{BOT_TOKEN}", methods=["POST"])
     def recibir_update():
         if request.headers.get('content-type') == 'application/json':
             json_str = request.get_data().decode("utf-8")
