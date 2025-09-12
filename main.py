@@ -65,14 +65,16 @@ def es_correo_autorizado(correo_usuario, plataforma_requerida):
 
 def buscar_ultimo_correo(imap_user, imap_pass, asunto_clave):
     """
-    Busca el último correo con un asunto específico, manejando la codificación.
+    Busca el último correo con un asunto específico, manejando la codificación de forma robusta.
     """
     try:
         mailbox = imaplib.IMAP4_SSL('imap.gmail.com')
         mailbox.login(imap_user, imap_pass)
         mailbox.select('inbox')
         
-        status, messages = mailbox.search(None, f'SUBJECT "{asunto_clave}"')
+        # Codifica el asunto clave para que la búsqueda IMAP maneje caracteres especiales
+        search_criteria = f'(SUBJECT "{asunto_clave}")'.encode('utf-8')
+        status, messages = mailbox.search(None, search_criteria)
         
         if not messages[0]:
             return None, f"❌ No se encontró ningún correo con el asunto: '{asunto_clave}'"
@@ -80,14 +82,16 @@ def buscar_ultimo_correo(imap_user, imap_pass, asunto_clave):
         mail_id = messages[0].split()[-1]
         status, data = mailbox.fetch(mail_id, '(RFC822)')
         
-        email_message = email.message_from_bytes(data[0][1])
+        raw_email = data[0][1]
+        email_message = email.message_from_bytes(raw_email)
         
         html_content = ""
         for part in email_message.walk():
             content_type = part.get_content_type()
             # Se ha agregado la decodificación con UTF-8
             if content_type == "text/html":
-                html_content = part.get_payload(decode=True).decode('utf-8', errors='ignore')
+                charset = part.get_content_charset() or 'utf-8'
+                html_content = part.get_payload(decode=True).decode(charset, errors='ignore')
                 break
         
         mailbox.close()
