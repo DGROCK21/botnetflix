@@ -396,16 +396,4 @@ if bot:
             for entrada in cuentas[user_id]:
                 correo = entrada.split("|")[0] if "|" in entrada else entrada
                 todos.append(correo)
-        texto = "📋 Correos registrados para tu ID:\n" + "\n".join(sorted(list(set(todos)))) if todos else "⚠️ No hay correos registrados para tu ID."
-        bot.reply_to(message, texto)
-else:
-    @app.route(f"/{os.getenv('BOT_TOKEN', 'dummy_token')}", methods=["POST"])
-    def dummy_webhook_route():
-        logging.warning("Webhook de Telegram llamado, pero BOT_TOKEN no está configurado. Ignorando.")
-        return "", 200
-
-if __name__ == "__main__":
-    mantener_vivo()
-    port = int(os.environ.get("PORT", 8080))
-    logging.info(f"Iniciando Flask app en el puerto {port}")
-    app.run(host="0.0.0.0", port=port)
+        texto = "📋 Correos registrados para tu ID:\n" + "\n".join(sorted(list(set(todos)))) if todos else "⚠️ No hay correos registrados para tu
