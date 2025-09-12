@@ -68,39 +68,26 @@ def buscar_ultimo_correo(imap_user, imap_pass, asunto_clave):
     Busca el último correo con un asunto específico, manejando la codificación de forma robusta.
     """
     try:
-        mailbox = imaplib.IMAP4_SSL('imap.gmail.com')
-        mailbox.login(imap_user, imap_pass)
-        mailbox.select('inbox')
+        with MailBox('imap.gmail.com').login(imap_user, imap_pass, 'INBOX') as mailbox:
+            # Buscamos el correo más reciente con el asunto, lo que maneja correctamente la codificación
+            for msg in mailbox.fetch(AND(subject=asunto_clave), reverse=True, limit=1):
+                raw_email = msg.original_bytes
+                email_message = email.message_from_bytes(raw_email)
+                
+                html_content = ""
+                for part in email_message.walk():
+                    content_type = part.get_content_type()
+                    if content_type == "text/html":
+                        charset = part.get_content_charset() or 'utf-8'
+                        html_content = part.get_payload(decode=True).decode(charset, errors='ignore')
+                        break
+                
+                if html_content:
+                    return html_content, None
+                else:
+                    return None, "❌ No se pudo encontrar la parte HTML del correo."
         
-        # Codifica el asunto clave para que la búsqueda IMAP maneje caracteres especiales
-        search_criteria = f'SUBJECT "{asunto_clave}"'.encode('utf-8')
-        status, messages = mailbox.search(None, search_criteria)
-        
-        if not messages[0]:
-            return None, f"❌ No se encontró ningún correo con el asunto: '{asunto_clave}'"
-        
-        mail_id = messages[0].split()[-1]
-        status, data = mailbox.fetch(mail_id, '(RFC822)')
-        
-        raw_email = data[0][1]
-        email_message = email.message_from_bytes(raw_email)
-        
-        html_content = ""
-        for part in email_message.walk():
-            content_type = part.get_content_type()
-            # Se ha agregado la decodificación con UTF-8
-            if content_type == "text/html":
-                charset = part.get_content_charset() or 'utf-8'
-                html_content = part.get_payload(decode=True).decode(charset, errors='ignore')
-                break
-        
-        mailbox.close()
-        mailbox.logout()
-        
-        if html_content:
-            return html_content, None
-        else:
-            return None, "❌ No se pudo encontrar la parte HTML del correo."
+        return None, f"❌ No se encontró ningún correo con el asunto: '{asunto_clave}'"
     except Exception as e:
         return None, f"❌ Error en la conexión o búsqueda de correo: {str(e)}"
 
@@ -219,9 +206,9 @@ def consultar_accion_web():
             html_correo, error = buscar_ultimo_correo(IMAP_USER, IMAP_PASS, asunto_parte_clave)
             if error:
                 return render_template('result.html', status="error", message=error)
-            link_boton_rojo = extraer_link_con_token_o_confirmacion(html_correo, es_hogar=True)
-            if link_boton_rojo:
-                enlace_final_confirmacion = obtener_enlace_confirmacion_final_hogar(link_boton_rojo)
+            link = extraer_link_con_token_o_confirmacion(html_correo, es_hogar=True)
+            if link:
+                enlace_final_confirmacion = obtener_enlace_confirmacion_final_hogar(link)
                 if enlace_final_confirmacion:
                     mensaje_web = f"✅ Solicitud de Hogar procesada. Por favor, **HAZ CLIC INMEDIATAMENTE** en este enlace para confirmar la actualización:<br><br><strong><a href='{enlace_final_confirmacion}' target='_blank'>{enlace_final_confirmacion}</a></strong><br><br>⚠️ Este enlace vence muy rápido. Si ya lo has usado o ha pasado mucho tiempo, es posible que debas solicitar una nueva actualización en tu TV."
                     if bot and ADMIN_TELEGRAM_ID:
@@ -231,11 +218,11 @@ def consultar_accion_web():
                             logging.info(f"WEB: Enlace de hogar final enviado al admin por Telegram (adicional) para {user_email_input}.")
                         except Exception as e:
                             logging.error(f"WEB: Error al enviar notificación ADICIONAL por Telegram: {e}")
-                return render_template('result.html', status="success", message=mensaje_web)
+                    return render_template('result.html', status="success", message=mensaje_web)
+                else:
+                    return render_template('result.html', status="warning", message="❌ No se pudo obtener el enlace de confirmación final. Contacta al administrador si persiste.")
             else:
-                return render_template('result.html', status="warning", message="❌ No se pudo obtener el enlace de confirmación final. Contacta al administrador si persiste.")
-        else:
-            return render_template('result.html', status="warning", message="No se encontró ninguna solicitud pendiente para esta cuenta.")
+                return render_template('result.html', status="warning", message="No se encontró ninguna solicitud pendiente para esta cuenta.")
     
     elif platform == 'universal':
         if action == 'code':
@@ -243,13 +230,20 @@ def consultar_accion_web():
             html_correo, error = buscar_ultimo_correo(IMAP_USER, IMAP_PASS, asunto_clave)
             if error:
                 return render_template('result.html', status="error", message=error)
-            codigo_universal, error_extra = navegar_y_extraer_universal(html_correo)
-            if error_extra:
-                return render_template('result.html', status="error", message=error_extra)
-            if codigo_universal:
-                return render_template('result.html', status="success", message=f"✅ Tu código de Universal+ es: <strong>{codigo_universal}</strong>.<br>Úsalo en la página de activación.")
+            
+            soup = BeautifulSoup(html_correo, 'html.parser')
+            code_div = soup.find('div', style=lambda value: value and 'font-size: 32px' in value and 'font-weight: 700' in value)
+            if code_div:
+                codigo = code_div.text.strip()
+                if re.fullmatch(r'[A-Z0-9]{6,7}', codigo):
+                    logging.info(f"✅ Código de Universal+ extraído: {codigo}")
+                    return render_template('result.html', status="success", message=f"✅ Tu código de Universal+ es: <strong>{codigo}</strong>.<br>Úsalo en la página de activación.")
+                else:
+                    logging.warning("❌ Se encontró un texto en la etiqueta correcta, pero no coincide con el formato de código.")
+                    return render_template('result.html', status="warning", message="❌ No se pudo extraer el código. El formato no es válido.")
             else:
-                return render_template('result.html', status="warning", message="❌ No se pudo obtener un código de Universal+ reciente. Asegúrate de haberlo solicitado y que el correo haya llegado.")
+                logging.warning("❌ No se encontró la etiqueta div con el estilo del código.")
+                return render_template('result.html', status="warning", message="❌ No se pudo encontrar el código de activación. El formato del correo puede haber cambiado.")
         else:
             return render_template('result.html', status="error", message="❌ Acción no válida para Universal.")
             
@@ -337,10 +331,10 @@ if bot:
         if error:
             bot.reply_to(message, error)
             return
-        link_boton_rojo = extraer_link_con_token_o_confirmacion(html_correo, es_hogar=True)
-        if link_boton_rojo:
-            logging.info(f"TELEGRAM: Enlace del botón rojo 'Sí, la envié yo' encontrado: {link_boton_rojo}. Intentando obtener enlace final de confirmación...")
-            enlace_final_confirmacion = obtener_enlace_confirmacion_final_hogar(link_boton_rojo)
+        link = extraer_link_con_token_o_confirmacion(html_correo, es_hogar=True)
+        if link:
+            logging.info(f"TELEGRAM: Enlace del botón rojo 'Sí, la envié yo' encontrado: {link}. Intentando obtener enlace final de confirmación...")
+            enlace_final_confirmacion = obtener_enlace_confirmacion_final_hogar(link)
             if enlace_final_confirmacion:
                 mensaje_telegram_usuario = f"🏠 Solicitud de Hogar procesada. Por favor, **HAZ CLIC INMEDIATAMENTE** en este enlace para confirmar la actualización:\n{enlace_final_confirmacion}\n\n⚠️ Este enlace vence muy rápido."
                 if ADMIN_TELEGRAM_ID and str(message.from_user.id) != ADMIN_TELEGRAM_ID:
@@ -384,11 +378,15 @@ if bot:
         if error:
             bot.reply_to(message, error)
             return
-        codigo_universal, error_extra = navegar_y_extraer_universal(html_correo)
-        if error_extra:
-            return render_template('result.html', status="error", message=error_extra)
-        if codigo_universal:
-            bot.reply_to(message, f"✅ TELEGRAM: Tu código de Universal+ es: `{codigo_universal}`")
+        
+        soup = BeautifulSoup(html_correo, 'html.parser')
+        code_div = soup.find('div', style=lambda value: value and 'font-size: 32px' in value and 'font-weight: 700' in value)
+        if code_div:
+            codigo = code_div.text.strip()
+            if re.fullmatch(r'[A-Z0-9]{6,7}', codigo):
+                bot.reply_to(message, f"✅ TELEGRAM: Tu código de Universal+ es: `{codigo}`")
+            else:
+                bot.reply_to(message, "❌ TELEGRAM: Se encontró un texto en la etiqueta correcta, pero no coincide con el formato de código.")
         else:
             bot.reply_to(message, "❌ TELEGRAM: No se pudo obtener un código de Universal+ reciente.")
     
@@ -402,11 +400,6 @@ if bot:
                 todos.append(correo)
         texto = "📋 Correos registrados para tu ID:\n" + "\n".join(sorted(list(set(todos)))) if todos else "⚠️ No hay correos registrados para tu ID."
         bot.reply_to(message, texto)
-else:
-    @app.route(f"/{os.getenv('BOT_TOKEN', 'dummy_token')}", methods=["POST"])
-    def dummy_webhook_route():
-        logging.warning("Webhook de Telegram llamado, pero BOT_TOKEN no está configurado. Ignorando.")
-        return "", 200
 
 if __name__ == "__main__":
     mantener_vivo()
