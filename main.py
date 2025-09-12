@@ -54,42 +54,49 @@ def es_correo_autorizado(correo_usuario, plataforma_requerida):
     if not cuentas:
         logging.warning("No hay cuentas cargadas para validación. Todos los correos serán rechazados.")
         return False
-
-    # Itera sobre los valores del diccionario (las listas de correos)
     for correos_list in cuentas.values():
         for entrada in correos_list:
             partes = entrada.split("|")
             correo_en_lista = partes[0].lower()
             etiqueta_plataforma = partes[1].lower() if len(partes) > 1 else "ninguna"
-            
-            # Compara el correo y la etiqueta de la plataforma
             if correo_en_lista == correo_usuario.lower() and etiqueta_plataforma == plataforma_requerida.lower():
                 return True
     return False
 
 def buscar_ultimo_correo(imap_user, imap_pass, asunto_clave):
     """
-    Busca el último correo con un asunto específico.
+    Busca el último correo con un asunto específico, manejando la codificación.
     """
     try:
         mailbox = imaplib.IMAP4_SSL('imap.gmail.com')
         mailbox.login(imap_user, imap_pass)
         mailbox.select('inbox')
+        
         status, messages = mailbox.search(None, f'SUBJECT "{asunto_clave}"')
+        
         if not messages[0]:
             return None, f"❌ No se encontró ningún correo con el asunto: '{asunto_clave}'"
+        
         mail_id = messages[0].split()[-1]
         status, data = mailbox.fetch(mail_id, '(RFC822)')
+        
         email_message = email.message_from_bytes(data[0][1])
+        
         html_content = ""
         for part in email_message.walk():
             content_type = part.get_content_type()
+            # Se ha agregado la decodificación con UTF-8
             if content_type == "text/html":
-                html_content = part.get_payload(decode=True).decode()
+                html_content = part.get_payload(decode=True).decode('utf-8', errors='ignore')
                 break
+        
         mailbox.close()
         mailbox.logout()
-        return html_content, None if html_content else "❌ No se pudo encontrar la parte HTML del correo."
+        
+        if html_content:
+            return html_content, None
+        else:
+            return None, "❌ No se pudo encontrar la parte HTML del correo."
     except Exception as e:
         return None, f"❌ Error en la conexión o búsqueda de correo: {str(e)}"
 
@@ -240,15 +247,6 @@ def consultar_accion_web():
         else:
             return render_template('result.html', status="error", message="❌ Acción no válida para Universal.")
             
-    # Añade aquí la lógica para otras plataformas (Disney, Prime, Crunchyroll, Max)
-    # Por ejemplo, para Disney:
-    # elif platform == 'disney':
-    #     if action == 'code':
-    #         codigo_disney, error = buscar_y_extraer_disney(...)
-    #         ...
-    #     else:
-    #         ...
-
     else:
         logging.warning(f"WEB: Plataforma no válida recibida: {platform}")
         return render_template('result.html', status="error", message="❌ Plataforma no válida. Por favor, selecciona una de las opciones.")
