@@ -65,29 +65,42 @@ def es_correo_autorizado(correo_usuario, plataforma_requerida):
 
 def buscar_ultimo_correo(imap_user, imap_pass, asunto_clave):
     """
-    Busca el último correo con un asunto específico, usando imap-tools para evitar errores de codificación.
+    Busca el último correo con un asunto específico, manejando la codificación de forma robusta.
     """
     try:
-        with MailBox('imap.gmail.com').login(imap_user, imap_pass, 'INBOX') as mailbox:
-            # Buscamos el correo más reciente con el asunto, lo que maneja correctamente la codificación
-            for msg in mailbox.fetch(AND(subject=asunto_clave), reverse=True, limit=1):
-                raw_email = msg.original_bytes
-                email_message = email.message_from_bytes(raw_email)
-                
-                html_content = ""
-                for part in email_message.walk():
-                    content_type = part.get_content_type()
-                    if content_type == "text/html":
-                        charset = part.get_content_charset() or 'utf-8'
-                        html_content = part.get_payload(decode=True).decode(charset, errors='ignore')
-                        break
-                
-                if html_content:
-                    return html_content, None
-                else:
-                    return None, "❌ No se pudo encontrar la parte HTML del correo."
+        mailbox = imaplib.IMAP4_SSL('imap.gmail.com')
+        mailbox.login(imap_user, imap_pass)
+        mailbox.select('inbox')
         
-        return None, f"❌ No se encontró ningún correo con el asunto: '{asunto_clave}'"
+        # Codifica el asunto clave para que la búsqueda IMAP maneje caracteres especiales
+        search_criteria = f'SUBJECT "{asunto_clave}"'.encode('utf-8')
+        status, messages = mailbox.search(None, search_criteria)
+        
+        if not messages[0]:
+            return None, f"❌ No se encontró ningún correo con el asunto: '{asunto_clave}'"
+        
+        mail_id = messages[0].split()[-1]
+        status, data = mailbox.fetch(mail_id, '(RFC822)')
+        
+        raw_email = data[0][1]
+        email_message = email.message_from_bytes(raw_email)
+        
+        html_content = ""
+        for part in email_message.walk():
+            content_type = part.get_content_type()
+            # Se ha agregado la decodificación con UTF-8
+            if content_type == "text/html":
+                charset = part.get_content_charset() or 'utf-8'
+                html_content = part.get_payload(decode=True).decode(charset, errors='ignore')
+                break
+        
+        mailbox.close()
+        mailbox.logout()
+        
+        if html_content:
+            return html_content, None
+        else:
+            return None, "❌ No se pudo encontrar la parte HTML del correo."
     except Exception as e:
         return None, f"❌ Error en la conexión o búsqueda de correo: {str(e)}"
 
@@ -218,19 +231,21 @@ def consultar_accion_web():
                             logging.info(f"WEB: Enlace de hogar final enviado al admin por Telegram (adicional) para {user_email_input}.")
                         except Exception as e:
                             logging.error(f"WEB: Error al enviar notificación ADICIONAL por Telegram: {e}")
-                    return render_template('result.html', status="success", message=mensaje_web)
-                else:
-                    return render_template('result.html', status="warning", message="❌ No se pudo obtener el enlace de confirmación final. Contacta al administrador si persiste.")
+                return render_template('result.html', status="success", message=mensaje_web)
             else:
-                return render_template('result.html', status="warning", message="No se encontró ninguna solicitud pendiente para esta cuenta.")
+                return render_template('result.html', status="warning", message="❌ No se pudo obtener el enlace de confirmación final. Contacta al administrador si persiste.")
         else:
-            return render_template('result.html', status="error", message="❌ Acción no válida para Netflix.")
-
+            return render_template('result.html', status="warning", message="No se encontró ninguna solicitud pendiente para esta cuenta.")
+    
     elif platform == 'universal':
         if action == 'code':
-            codigo_universal, error = navegar_y_extraer_universal(IMAP_USER, IMAP_PASS)
+            asunto_clave = "Código de activación Universal+"
+            html_correo, error = buscar_ultimo_correo(IMAP_USER, IMAP_PASS, asunto_clave)
             if error:
                 return render_template('result.html', status="error", message=error)
+            codigo_universal, error_extra = navegar_y_extraer_universal(html_correo)
+            if error_extra:
+                return render_template('result.html', status="error", message=error_extra)
             if codigo_universal:
                 return render_template('result.html', status="success", message=f"✅ Tu código de Universal+ es: <strong>{codigo_universal}</strong>.<br>Úsalo en la página de activación.")
             else:
@@ -364,10 +379,14 @@ if bot:
         if not es_autorizado:
              bot.reply_to(message, "⚠️ Correo no autorizado o no asignado para esta plataforma.")
              return
-        codigo_universal, error = navegar_y_extraer_universal(IMAP_USER, IMAP_PASS)
+        asunto_clave = "Código de activación Universal+"
+        html_correo, error = buscar_ultimo_correo(IMAP_USER, IMAP_PASS, asunto_clave)
         if error:
             bot.reply_to(message, error)
             return
+        codigo_universal, error_extra = navegar_y_extraer_universal(html_correo)
+        if error_extra:
+            return render_template('result.html', status="error", message=error_extra)
         if codigo_universal:
             bot.reply_to(message, f"✅ TELEGRAM: Tu código de Universal+ es: `{codigo_universal}`")
         else:
