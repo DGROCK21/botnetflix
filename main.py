@@ -176,43 +176,37 @@ def consultar_accion_web():
         logging.warning("WEB: Solicitud sin correo electrónico.")
         return render_template('result.html', status="error", message="❌ Por favor, ingresa tu correo electrónico.")
 
-    if not es_correo_autorizado(user_email_input, "netflix"):
-        logging.warning(f"WEB: Intento de correo no autorizado para Netflix: {user_email_input}")
-        return render_template('result.html', status="error", message="⚠️ Correo no autorizado para Netflix. Por favor, usa un correo registrado en la cuenta @dgplayk.com.")
-
-    if not IMAP_USER or not IMAP_PASS:
-        logging.error("WEB: E-MAIL_USER o EMAIL_PASS no definidos. La funcionalidad de lectura de correos no es válida.")
-        return render_template('result.html', status="error", message="❌ Error interno del servidor: La configuración de lectura de correos no es válida. Contacta al administrador del servicio.")
-
+    # A partir de aquí, la lógica se ejecuta para cualquier plataforma
     if action == 'code':
+        if not es_correo_autorizado(user_email_input, "netflix"):
+            return render_template('result.html', status="error", message="⚠️ Correo no autorizado para Netflix. Por favor, usa un correo registrado en la cuenta @dgplayk.com.")
+        
+        # Lógica de Netflix code
         asunto_clave = "Código de acceso temporal de Netflix"
-        logging.info(f"WEB: Solicitud de código para {user_email_input}. Buscando en {IMAP_USER} correo con asunto: '{asunto_clave}'")
         html_correo, error = buscar_ultimo_correo(IMAP_USER, IMAP_PASS, asunto_clave)
         if error:
-            logging.error(f"WEB: Error al buscar correo para código: {error}")
             return render_template('result.html', status="error", message=error)
         link = extraer_link_con_token_o_confirmacion(html_correo, es_hogar=False)
         if link:
             codigo_final = obtener_codigo_de_pagina(link)
             if codigo_final:
-                logging.info(f"WEB: Código obtenido: {codigo_final}")
                 return render_template('result.html', status="success", message=f"✅ Tu código de Netflix es: <strong>{codigo_final}</strong>.<br>Úsalo en tu TV o dispositivo.")
             else:
-                logging.warning("WEB: Se encontró el enlace de código, pero no se pudo extraer el código de la página de Netflix.")
                 return render_template('result.html', status="warning", message="No se pudo obtener el código activo para esta cuenta.")
         else:
-            logging.warning("WEB: No se encontró enlace de código de Netflix en el correo principal.")
             return render_template('result.html', status="warning", message="No se encontró ninguna solicitud pendiente para esta cuenta.")
+
     elif action == 'hogar':
+        if not es_correo_autorizado(user_email_input, "netflix"):
+            return render_template('result.html', status="error", message="⚠️ Correo no autorizado para Netflix. Por favor, usa un correo registrado en la cuenta @dgplayk.com.")
+        
+        # Lógica de Netflix hogar
         asunto_parte_clave = "Importante: Cómo actualizar tu Hogar con Netflix"
-        logging.info(f"WEB: Solicitud de hogar para {user_email_input}. Buscando en {IMAP_USER} correo que contenga: '{asunto_parte_clave}'")
         html_correo, error = buscar_ultimo_correo(IMAP_USER, IMAP_PASS, asunto_parte_clave)
         if error:
-            logging.error(f"WEB: Error al buscar correo para hogar: {error}")
             return render_template('result.html', status="error", message=error)
         link_boton_rojo = extraer_link_con_token_o_confirmacion(html_correo, es_hogar=True)
         if link_boton_rojo:
-            logging.info(f"WEB: Enlace del botón rojo 'Sí, la envié yo' encontrado: {link_boton_rojo}. Intentando obtener enlace final de confirmación...")
             enlace_final_confirmacion = obtener_enlace_confirmacion_final_hogar(link_boton_rojo)
             if enlace_final_confirmacion:
                 mensaje_web = f"✅ Solicitud de Hogar procesada. Por favor, **HAZ CLIC INMEDIATAMENTE** en este enlace para confirmar la actualización:<br><br><strong><a href='{enlace_final_confirmacion}' target='_blank'>{enlace_final_confirmacion}</a></strong><br><br>⚠️ Este enlace vence muy rápido. Si ya lo has usado o ha pasado mucho tiempo, es posible que debas solicitar una nueva actualización en tu TV."
@@ -225,46 +219,33 @@ def consultar_accion_web():
                         logging.error(f"WEB: Error al enviar notificación ADICIONAL por Telegram: {e}")
                 return render_template('result.html', status="success", message=mensaje_web)
             else:
-                logging.warning("WEB: No se pudo extraer el enlace de confirmación final del botón negro.")
-                return render_template('result.html', status="warning", message="❌ No se pudo obtener el enlace de confirmación final. El formato de la página de Netflix puede haber cambiado. Contacta al administrador si persiste.")
+                return render_template('result.html', status="warning", message="❌ No se pudo obtener el enlace de confirmación final. Contacta al administrador si persiste.")
         else:
-            logging.warning("WEB: No se encontró el enlace del botón 'Sí, la envié yo' en el correo principal.")
             return render_template('result.html', status="warning", message="No se encontró ninguna solicitud pendiente para esta cuenta.")
+
     elif action == 'universal':
-        return consultar_universal_web()
+        if not es_correo_autorizado(user_email_input, "universal"):
+            return render_template('result.html', status="error", message="⚠️ Correo no autorizado para Universal. Por favor, usa un correo registrado.")
+        
+        # Lógica de Universal
+        codigo_universal, error = navegar_y_extraer_universal(IMAP_USER, IMAP_PASS)
+        if error:
+            return render_template('result.html', status="error", message=error)
+        if codigo_universal:
+            return render_template('result.html', status="success", message=f"✅ Tu código de Universal+ es: <strong>{codigo_universal}</strong>.<br>Úsalo en la página de activación.")
+        else:
+            return render_template('result.html', status="warning", message="❌ No se pudo encontrar un código de Universal+ reciente. Asegúrate de haberlo solicitado y que el correo haya llegado.")
+
     else:
         logging.warning(f"WEB: Acción no válida recibida: {action}")
-        return render_template('result.html', status="error", message="❌ Acción no válida. Por favor, selecciona 'Consultar Código' o 'Actualizar Hogar'.")
-
-@app.route('/universal_code', methods=['POST'])
-def consultar_universal_web():
-    user_email_input = request.form.get('email', '').strip()
-    if not user_email_input:
-        logging.warning("WEB: Solicitud de Universal sin correo electrónico.")
-        return render_template('result.html', status="error", message="❌ Por favor, ingresa tu correo electrónico.")
-    if not es_correo_autorizado(user_email_input, "universal"):
-        logging.warning(f"WEB: Intento de correo no autorizado para Universal: {user_email_input}")
-        return render_template('result.html', status="error", message="⚠️ Correo no autorizado para Universal. Por favor, usa un correo registrado.")
-    if not IMAP_USER or not IMAP_PASS:
-        logging.error("WEB: E-MAIL_USER o EMAIL_PASS no definidos. La funcionalidad de lectura de correos no es válida.")
-        return render_template('result.html', status="error", message="❌ Error interno del servidor: La configuración de lectura de correos no es válida. Contacta al administrador del servicio.")
-    codigo_universal, error = navegar_y_extraer_universal(IMAP_USER, IMAP_PASS)
-    if error:
-        logging.error(f"WEB: Error al obtener código de Universal: {error}")
-        return render_template('result.html', status="error", message=error)
-    if codigo_universal:
-        logging.info(f"WEB: Código de Universal+ obtenido: {codigo_universal}")
-        return render_template('result.html', status="success", message=f"✅ Tu código de Universal+ es: <strong>{codigo_universal}</strong>.<br>Úsalo en la página de activación.")
-    else:
-        logging.warning("WEB: No se pudo obtener el código de Universal+.")
-        return render_template('result.html', status="warning", message="❌ No se pudo encontrar un código de Universal+ reciente. Asegúrate de haberlo solicitado y que el correo haya llegado.")
+        return render_template('result.html', status="error", message="❌ Acción no válida. Por favor, selecciona una de las opciones.")
 
 # =====================
 # COMANDOS DE TELEGRAM
 # =====================
 
 if bot:
-    @app.route(f"/{BOT_TOKEN}", methods=["POST"])
+    @app.route(f"/{os.getenv('BOT_TOKEN', 'dummy_token')}", methods=["POST"])
     def recibir_update():
         if request.headers.get('content-type') == 'application/json':
             json_str = request.get_data().decode("utf-8")
@@ -399,4 +380,15 @@ if bot:
                 correo = entrada.split("|")[0] if "|" in entrada else entrada
                 todos.append(correo)
         texto = "📋 Correos registrados para tu ID:\n" + "\n".join(sorted(list(set(todos)))) if todos else "⚠️ No hay correos registrados para tu ID."
-        bot.reply_to(message,
+        bot.reply_to(message, texto)
+else:
+    @app.route(f"/{os.getenv('BOT_TOKEN', 'dummy_token')}", methods=["POST"])
+    def dummy_webhook_route():
+        logging.warning("Webhook de Telegram llamado, pero BOT_TOKEN no está configurado. Ignorando.")
+        return "", 200
+
+if __name__ == "__main__":
+    mantener_vivo()
+    port = int(os.environ.get("PORT", 8080))
+    logging.info(f"Iniciando Flask app en el puerto {port}")
+    app.run(host="0.0.0.0", port=port)
