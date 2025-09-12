@@ -73,7 +73,7 @@ def buscar_ultimo_correo(imap_user, imap_pass, asunto_clave):
         mailbox.select('inbox')
         
         # Codifica el asunto clave para que la búsqueda IMAP maneje caracteres especiales
-        search_criteria = f'(SUBJECT "{asunto_clave}")'.encode('utf-8')
+        search_criteria = f'SUBJECT "{asunto_clave}"'.encode('utf-8')
         status, messages = mailbox.search(None, search_criteria)
         
         if not messages[0]:
