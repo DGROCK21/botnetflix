@@ -168,61 +168,31 @@ def consultar_accion_web():
 # =====================
 # RUTA NUEVA PARA UNIVERSAL+
 # =====================
-
-@app.route('/universal_code', methods=['POST'])
-def consultar_universal_web():
-    user_email_input = request.form.get('email', '').strip()
+ # --- Función corregida para extraer el código de Universal+ ---
+def extraer_codigo_universal(html_content):
+    """
+    Extrae el código de 6 dígitos del correo de activación de Universal+.
+    """
+    soup = BeautifulSoup(html_content, 'html.parser')
     
-    if not user_email_input:
-        logging.warning("WEB: Solicitud de Universal sin correo electrónico.")
-        return render_template('result.html', status="error", message="❌ Por favor, ingresa tu correo electrónico.")
-
-    # Usamos la nueva función para verificar el correo y la plataforma
-    if not es_correo_autorizado(user_email_input, "universal"):
-        logging.warning(f"WEB: Intento de correo no autorizado para Universal: {user_email_input}")
-        return render_template('result.html', status="error", message="⚠️ Correo no autorizado para Universal. Por favor, usa un correo registrado.")
-
-    if not IMAP_USER or not IMAP_PASS:
-        logging.error("WEB: E-MAIL_USER o EMAIL_PASS no definidos. La funcionalidad de lectura de correos no es válida.")
-        return render_template('result.html', status="error", message="❌ Error interno del servidor: La configuración de lectura de correos no es válida. Contacta al administrador del servicio.")
-
-    # Usamos la nueva función para Universal
-    codigo_universal, error = navegar_y_extraer_universal(IMAP_USER, IMAP_PASS)
+    # Universal usa una tabla con el código
+    # Buscamos una celda con un estilo de font-size grande y centrado
+    codigo_div = soup.find('div', style=lambda value: value and 'font-size: 32px' in value and 'font-weight: 700' in value)
     
-    if error:
-        logging.error(f"WEB: Error al obtener código de Universal: {error}")
-        return render_template('result.html', status="error", message=error)
+    if codigo_div:
+        codigo = codigo_div.text.strip()
+        # Verificamos si el código tiene 6 caracteres y es alfanumérico
+        if re.fullmatch(r'[A-Z0-9]{6}', codigo):
+            logging.info(f"Código de Universal+ encontrado: {codigo}")
+            return codigo
     
-    if codigo_universal:
-        logging.info(f"WEB: Código de Universal+ obtenido: {codigo_universal}")
-        return render_template('result.html', status="success", message=f"✅ Tu código de Universal+ es: <strong>{codigo_universal}</strong>.<br>Úsalo en la página de activación.")
-    else:
-        logging.warning("WEB: No se pudo obtener el código de Universal+.")
-        return render_template('result.html', status="warning", message="❌ No se pudo encontrar un código de Universal+ reciente. Asegúrate de haberlo solicitado y que el correo haya llegado.")
+    # Fallback: Si no lo encontramos en la etiqueta div, buscamos el código con una expresión regular más amplia
+    match = re.search(r'[\s](([A-Z0-9]{6}))[\s]', html_content)
+    if match:
+        codigo = match.group(1).strip()
+        if re.fullmatch(r'[A-Z0-9]{6}', codigo):
+            logging.info(f"Código de Universal+ encontrado (regex): {codigo}")
+            return codigo
 
-
-# =====================
-# Comandos del bot de Telegram (Webhook)
-# =====================
-
-if bot:
-    @app.route(f"/{BOT_TOKEN}", methods=["POST"])
-    def recibir_update():
-        """
-        Ruta para recibir actualizaciones del webhook de Telegram.
-        """
-        if request.headers.get('content-type') == 'application/json':
-            json_str = request.get_data().decode("utf-8")
-            update = telebot.types.Update.de_json(json_str)
-            bot.process_new_updates([update])
-            return "", 200 # Respuesta exitosa para Telegram
-        else:
-            logging.warning("TELEGRAM: Encabezado Content-Type incorrecto en la solicitud del webhook.")
-            return "Bad Request", 400
-
-    @bot.message_handler(commands=["code"])
-    def manejar_code_telegram(message):
-        """
-        Maneja el comando /code para obtener un código de Netflix vía Telegram.
-        """
-        if
+    logging.warning("No se pudo encontrar el código de Universal+ en el correo.")
+    return None
