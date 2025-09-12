@@ -110,7 +110,7 @@ def obtener_enlace_confirmacion_final_hogar(url_boton_rojo):
 
 def navegar_y_extraer_universal(imap_user, imap_pass):
     """
-    Busca el correo de Universal+ y extrae el código de activación.
+    Busca el correo de Universal+ y extrae el código de activación de manera más precisa.
     """
     asunto_universal = "Código de activación Universal+"
     logging.info(f"Buscando el correo de Universal+ con el asunto: '{asunto_universal}'")
@@ -122,18 +122,22 @@ def navegar_y_extraer_universal(imap_user, imap_pass):
                 # Usar BeautifulSoup para analizar el HTML del correo
                 soup = BeautifulSoup(msg.html, 'html.parser')
                 
-                # Buscamos el código de activación con una expresión regular
-                # Ahora busca exactamente 6 caracteres alfanuméricos
-                code_pattern = re.compile(r'\b[A-Z0-9]{6}\b')
-                code_element = soup.find(string=code_pattern)
+                # Buscamos la etiqueta <div> que contiene el código
+                # El código de 6 caracteres está en un <div> con un estilo de fuente específico.
+                code_div = soup.find('div', style=lambda value: value and 'font-size: 32px' in value and 'font-weight: 700' in value)
 
-                if code_element:
-                    codigo = code_element.strip()
-                    logging.info(f"✅ Código de Universal+ extraído: {codigo}")
-                    return codigo, None
+                if code_div:
+                    codigo = code_div.text.strip()
+                    # Verificamos si el código tiene 6 o 7 caracteres alfanuméricos como medida de seguridad
+                    if re.fullmatch(r'[A-Z0-9]{6,7}', codigo):
+                        logging.info(f"✅ Código de Universal+ extraído: {codigo}")
+                        return codigo, None
+                    else:
+                        logging.warning("❌ Se encontró un texto en la etiqueta correcta, pero no coincide con el formato de código (6 o 7 caracteres alfanuméricos).")
+                        return None, "❌ No se pudo extraer el código. El formato no es válido."
                 else:
-                    logging.warning("❌ No se encontró un código que coincida con el patrón en el correo de Universal+.")
-                    return None, "❌ No se pudo encontrar un código de activación en el correo. El formato del correo puede haber cambiado."
+                    logging.warning("❌ No se encontró la etiqueta div con el estilo del código.")
+                    return None, "❌ No se pudo encontrar el código de activación. El formato del correo puede haber cambiado."
     except Exception as e:
         logging.error(f"❌ Error al conectar o buscar el correo de Universal+: {e}")
         return None, f"❌ Error al conectar o buscar el correo: {str(e)}"
