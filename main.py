@@ -2,7 +2,7 @@ import os
 import json
 import logging
 import threading
-from flask import Flask, render_template, request, redirect, url_for
+from flask import Flask, render_template, request
 import imaplib
 import email
 from email.header import decode_header
@@ -36,8 +36,6 @@ ADMIN_TELEGRAM_ID = os.getenv("ADMIN_TELEGRAM_ID")
 
 if not IMAP_USER or not IMAP_PASS:
     logging.error("❌ E-MAIL_USER o EMAIL_PASS no están definidos. La funcionalidad de lectura de correos NO ESTARÁ DISPONIBLE.")
-if not BOT_TOKEN:
-    logging.error("❌ BOT_TOKEN no está definido. La funcionalidad de Telegram NO ESTARÁ DISPONIBLE.")
 
 app = Flask(__name__)
 
@@ -238,185 +236,11 @@ def consultar_accion_web():
         return render_template('result.html', status="error", message="❌ Plataforma no válida. Por favor, selecciona una de las opciones.")
 
 # =====================
-# FUNCIONALIDAD DEL BOT DE TELEGRAM
-# =====================
-
-if BOT_TOKEN:
-    bot = telebot.TeleBot(BOT_TOKEN)
-
-    def mantener_vivo_thread():
-        def run():
-            app_keep_alive = Flask(__name__)
-            @app_keep_alive.route('/')
-            def home():
-                return "Bot y Web activos", 200
-            
-            app_keep_alive.run(host='0.0.0.0', port=8080, use_reloader=False)
-
-        t = threading.Thread(target=run)
-        t.start()
-
-    @app.route(f"/{BOT_TOKEN}", methods=['POST'])
-    def webhook():
-        if request.headers.get('content-type') == 'application/json':
-            json_string = request.get_data().decode('utf-8')
-            update = telebot.types.Update.de_json(json_string)
-            bot.process_new_updates([update])
-            return '', 200
-        else:
-            logging.warning("Webhook de Telegram llamado con tipo de contenido no válido.")
-            return '', 403
-
-    @bot.message_handler(commands=["start", "help"])
-    def bienvenida_telegram(message):
-        keyboard = types.ReplyKeyboardMarkup(row_width=1, resize_keyboard=True)
-        btn_netflix = types.KeyboardButton('/netflix')
-        btn_universal = types.KeyboardButton('/universal')
-        keyboard.add(btn_netflix, btn_universal)
-        
-        texto_bienvenida = "Hola! Soy el bot de DGPLAY. Puedes usar los siguientes comandos:\n\n" \
-                          "➡️ `/netflix` - Para obtener el código o actualizar hogar de Netflix.\n" \
-                          "➡️ `/universal` - Para obtener el código de Universal+."
-        bot.reply_to(message, texto_bienvenida, reply_markup=keyboard)
-
-    @bot.message_handler(commands=["netflix"])
-    def manejar_menu_netflix(message):
-        texto_menu = "Selecciona una opción de Netflix:\n\n" \
-                     "➡️ `/code` - Obtener código de acceso temporal.\n" \
-                     "➡️ `/hogar` - Obtener enlace de confirmación de hogar."
-        bot.reply_to(message, texto_menu)
-
-    @bot.message_handler(commands=["code"])
-    def manejar_codigo_telegram(message):
-        if not IMAP_USER or not IMAP_PASS:
-            bot.reply_to(message, "❌ Error: La lectura de correos no está configurada. Contacta al administrador.")
-            return
-        
-        partes = message.text.split()
-        if len(partes) != 2:
-            bot.reply_to(message, "❌ Uso: `/code tu_correo_netflix@dgplayk.com`")
-            return
-            
-        correo_busqueda = partes[1].lower()
-        user_id = str(message.from_user.id)
-        
-        if not es_correo_autorizado(correo_busqueda, "netflix", user_id):
-            bot.reply_to(message, "⚠️ Correo no autorizado o no asignado para esta plataforma.")
-            return
-        
-        bot.reply_to(message, f"Buscando el código para {correo_busqueda}, por favor espera un momento...")
-        asunto_clave = "Código de acceso temporal de Netflix"
-        html_correo, error = buscar_ultimo_correo(asunto_clave)
-        
-        if error:
-            bot.reply_to(message, error)
-            return
-            
-        link = extraer_link_con_token_o_confirmacion(html_correo, es_hogar=False)
-        if link:
-            codigo_final = obtener_codigo_de_pagina(link)
-            if codigo_final:
-                bot.reply_to(message, f"✅ Tu código de Netflix es: `{codigo_final}`")
-            else:
-                bot.reply_to(message, "❌ No se pudo obtener el código activo para esta cuenta.")
-        else:
-            bot.reply_to(message, "❌ No se encontró ninguna solicitud pendiente para esta cuenta.")
-
-    @bot.message_handler(commands=["hogar"])
-    def manejar_hogar_telegram(message):
-        if not IMAP_USER or not IMAP_PASS:
-            bot.reply_to(message, "❌ Error: La lectura de correos no está configurada. Contacta al administrador.")
-            return
-        
-        partes = message.text.split()
-        if len(partes) != 2:
-            bot.reply_to(message, "❌ Uso: `/hogar tu_correo_netflix@dgplayk.com`")
-            return
-        
-        correo_busqueda = partes[1].lower()
-        user_id = str(message.from_user.id)
-        
-        if not es_correo_autorizado(correo_busqueda, "netflix", user_id):
-            bot.reply_to(message, "⚠️ Correo no autorizado o no asignado para esta plataforma.")
-            return
-
-        bot.reply_to(message, f"Buscando correo de hogar para {correo_busqueda}, por favor espera un momento...")
-        asunto_parte_clave = "Importante: Cómo actualizar tu Hogar con Netflix"
-        html_correo, error = buscar_ultimo_correo(asunto_parte_clave)
-
-        if error:
-            bot.reply_to(message, error)
-            return
-            
-        link = extraer_link_con_token_o_confirmacion(html_correo, es_hogar=True)
-        if link:
-            enlace_final_confirmacion = obtener_enlace_confirmacion_final_hogar(link)
-            if enlace_final_confirmacion:
-                mensaje_telegram_usuario = f"✅ Tu solicitud de hogar ha sido procesada. **HAZ CLIC INMEDIATAMENTE** en el siguiente enlace:\n\n{enlace_final_confirmacion}\n\n⚠️ Este enlace vence muy rápido. Si ya lo has usado o ha pasado mucho tiempo, es posible que debas solicitar una nueva actualización en tu TV."
-                bot.reply_to(message, mensaje_telegram_usuario, parse_mode='Markdown')
-            else:
-                bot.reply_to(message, "❌ No se pudo obtener el enlace de confirmación final. El formato de la página puede haber cambiado.")
-        else:
-            bot.reply_to(message, "❌ No se encontró ninguna solicitud pendiente para esta cuenta.")
-
-    @bot.message_handler(commands=["universal"])
-    def manejar_universal_telegram(message):
-        if not IMAP_USER or not IMAP_PASS:
-            bot.reply_to(message, "❌ Error: La lectura de correos no está configurada. Contacta al administrador.")
-            return
-        
-        partes = message.text.split()
-        if len(partes) != 2:
-            bot.reply_to(message, "❌ Uso: `/universal tu_correo_universal@dgplayk.com`")
-            return
-        
-        correo_busqueda = partes[1].lower()
-        user_id = str(message.from_user.id)
-        
-        if not es_correo_autorizado(correo_busqueda, "universal", user_id):
-            bot.reply_to(message, "⚠️ Correo no autorizado o no asignado para esta plataforma.")
-            return
-
-        bot.reply_to(message, "Buscando el código de Universal+, por favor espera un momento...")
-        codigo_universal, error = navegar_y_extraer_universal()
-        
-        if error:
-            bot.reply_to(message, error)
-            return
-            
-        if codigo_universal:
-            bot.reply_to(message, f"✅ Tu código de Universal+ es: `{codigo_universal}`")
-        else:
-            bot.reply_to(message, "❌ No se pudo obtener un código de Universal+ reciente.")
-
-    @bot.message_handler(commands=["cuentas"])
-    def mostrar_correos_telegram(message):
-        todos = []
-        user_id = str(message.from_user.id)
-        if user_id in cuentas and isinstance(cuentas[user_id], list):
-            for entrada in cuentas[user_id]:
-                correo = entrada.split("|")[0] if "|" in entrada else entrada
-                todos.append(correo)
-
-        texto = "📋 Correos registrados para tu ID:\n" + "\n".join(sorted(list(set(todos)))) if todos else "⚠️ No hay correos registrados para tu ID."
-        bot.reply_to(message, texto)
-
-else:
-    @app.route(f"/{os.getenv('BOT_TOKEN', 'dummy_token')}", methods=["POST"])
-    def dummy_webhook_route():
-        logging.warning("Webhook de Telegram llamado, pero BOT_TOKEN no está configurado. Ignorando.")
-        return "", 200
-
-# =====================
-# Inicio de la aplicación Flask y el bot de Telegram
+# Inicio de la aplicación Flask
 # =====================
 
 if __name__ == "__main__":
-    if BOT_TOKEN:
-        mantener_vivo_thread()
-        bot.set_webhook(url=f"https://{os.getenv('RENDER_EXTERNAL_HOSTNAME')}/{BOT_TOKEN}")
-        logging.info("Webhook de Telegram configurado exitosamente.")
-
+    mantener_vivo()
     port = int(os.environ.get("PORT", 8080))
     logging.info(f"Iniciando Flask app en el puerto {port}")
-    app.run(host="0.0.0.0", port=port, use_reloader=False)
+    app.run(host="0.0.0.0", port=port)
