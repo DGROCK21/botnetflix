@@ -2,14 +2,13 @@ import os
 import json
 import logging
 from flask import Flask, render_template, request, redirect, url_for
-import telebot
+from keep_alive import mantener_vivo
 import imaplib
 import email
 from email.header import decode_header
 import re
 import requests
 from bs4 import BeautifulSoup
-from imap_tools import MailBox, AND
 
 # Configurar logging para ver mensajes en los logs de Render
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -26,24 +25,17 @@ except json.JSONDecodeError:
     logging.error("❌ Error: Formato JSON inválido en cuentas.json. La validación de correo podría ser inconsistente.")
     cuentas = {}
 
-# Obtener credenciales IMAP y el token del bot desde las variables de entorno de Render
-BOT_TOKEN = os.getenv("BOT_TOKEN")
+# Obtener credenciales IMAP desde las variables de entorno de Render
 IMAP_USER = os.getenv("E-MAIL_USER")
 IMAP_PASS = os.getenv("EMAIL_PASS")
-ADMIN_TELEGRAM_ID = os.getenv("ADMIN_TELEGRAM_ID")
 
-if not BOT_TOKEN:
-    logging.error("❌ BOT_TOKEN no está definido. La funcionalidad de Telegram NO ESTARÁ DISPONIBLE.")
 if not IMAP_USER or not IMAP_PASS:
     logging.error("❌ E-MAIL_USER o EMAIL_PASS no están definidos. La funcionalidad de lectura de correos NO ESTARÁ DISPONIBLE.")
-if not ADMIN_TELEGRAM_ID:
-    logging.warning("⚠️ ADMIN_TELEGRAM_ID no está definido. No se enviarán notificaciones.")
 
 app = Flask(__name__)
-bot = telebot.TeleBot(BOT_TOKEN) if BOT_TOKEN else None
 
 # =====================
-# FUNCIONES AUXILIARES (integradas)
+# FUNCIONES AUXILIARES (ahora integradas)
 # =====================
 
 def es_correo_autorizado(correo_usuario, plataforma_requerida):
