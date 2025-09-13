@@ -166,7 +166,7 @@ def navegar_y_extraer_universal():
                         return None, "❌ Se encontró un texto en la etiqueta correcta, pero no coincide con el formato de código."
                 else:
                     return None, "❌ No se pudo encontrar el código de activación. El formato del correo puede haber cambiado."
-        return None, f"❌ No se encontró ningún correo con el asunto: '{asunto_clave}'"
+        return None, f"❌ No se encontró ningún correo con el asunto: '{asunto_universal}'"
     except Exception as e:
         logging.error(f"Error al conectar o buscar el correo de Universal+: {e}")
         return None, f"❌ Error en la conexión o búsqueda de correo: {str(e)}"
@@ -194,7 +194,7 @@ def consultar_accion_web():
     if platform == 'netflix':
         if action == 'code':
             asunto_clave = "Código de acceso temporal de Netflix"
-            html_correo, error = buscar_ultimo_correo(IMAP_USER, IMAP_PASS, asunto_clave)
+            html_correo, error = buscar_ultimo_correo(asunto_clave)
             if error:
                 return render_template('result.html', status="error", message=error)
             link = extraer_link_con_token_o_confirmacion(html_correo, es_hogar=False)
@@ -209,7 +209,7 @@ def consultar_accion_web():
 
         elif action == 'hogar':
             asunto_parte_clave = "Importante: Cómo actualizar tu Hogar con Netflix"
-            html_correo, error = buscar_ultimo_correo(IMAP_USER, IMAP_PASS, asunto_parte_clave)
+            html_correo, error = buscar_ultimo_correo(asunto_parte_clave)
             if error:
                 return render_template('result.html', status="error", message=error)
             link = extraer_link_con_token_o_confirmacion(html_correo, es_hogar=True)
