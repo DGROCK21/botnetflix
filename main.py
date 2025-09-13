@@ -53,6 +53,7 @@ def es_correo_autorizado(correo_usuario, plataforma_requerida, user_id=None):
         logging.warning("No hay cuentas cargadas para validación.")
         return False
     
+    # Lógica para Telegram: si se proporciona un user_id, buscamos solo en sus correos.
     if user_id and user_id in cuentas:
         for entrada in cuentas[user_id]:
             partes = entrada.split("|")
@@ -61,6 +62,18 @@ def es_correo_autorizado(correo_usuario, plataforma_requerida, user_id=None):
             
             if correo_en_lista == correo_usuario.lower() and etiqueta_plataforma == plataforma_requerida.lower():
                 return True
+    
+    # Lógica para la WEB: si no hay user_id (es una solicitud web), buscamos en todas las listas.
+    if user_id is None:
+        for user_data in cuentas.values():
+            for entrada in user_data:
+                partes = entrada.split("|")
+                correo_en_lista = partes[0].lower()
+                etiqueta_plataforma = partes[1].lower() if len(partes) > 1 else "ninguna"
+                
+                if correo_en_lista == correo_usuario.lower() and etiqueta_plataforma == plataforma_requerida.lower():
+                    return True
+    
     return False
 
 def buscar_ultimo_correo(asunto_clave):
