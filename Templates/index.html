@@ -214,7 +214,8 @@
         <div class="platform-container netflix-container">
             <h1>Netflix</h1>
             <p>Ingresa tu correo para obtener tu código o actualizar tu hogar.</p>
-            <form action="/consultar_accion" method="post">
+            <form id="netflix-form" action="/consultar_accion" method="post">
+                <input type="hidden" name="platform" value="netflix">
                 <input type="email" name="email" placeholder="tu.correo@dgplayk.com" required>
                 <div class="button-group">
                     <button type="submit" name="action" value="code" class="button">Consultar Código</button>
@@ -226,10 +227,11 @@
         <div class="platform-container universal-container">
             <h1>Universal</h1>
             <p>Obtén el código de activación para tu dispositivo.</p>
-            <form action="/universal_code" method="post">
+            <form id="universal-form" action="/consultar_accion" method="post">
+                <input type="hidden" name="platform" value="universal">
                 <input type="email" name="email" placeholder="tu.correo@dgplays.com" required>
                 <div class="button-group">
-                    <button type="submit" name="action" value="universal" class="button">Consultar Código Universal</button>
+                    <button type="submit" name="action" value="code" class="button">Consultar Código Universal</button>
                 </div>
             </form>
         </div>
@@ -237,10 +239,11 @@
         <div class="platform-container disney-container">
             <h1>Disney+</h1>
             <p>Ingresa tu correo para obtener tu código.</p>
-            <form action="/disney_code" method="post">
+            <form id="disney-form" action="/consultar_accion" method="post">
+                <input type="hidden" name="platform" value="disney">
                 <input type="email" name="email" placeholder="tu.correo@dgplays.com" required>
                 <div class="button-group">
-                    <button type="submit" name="action" value="disney" class="button">Consultar Código Disney+</button>
+                    <button type="submit" name="action" value="code" class="button">Consultar Código Disney+</button>
                 </div>
             </form>
         </div>
@@ -248,10 +251,11 @@
         <div class="platform-container prime-container">
             <h1>Prime Video</h1>
             <p>Ingresa tu correo para obtener tu código.</p>
-            <form action="/prime_code" method="post">
+            <form id="prime-form" action="/consultar_accion" method="post">
+                <input type="hidden" name="platform" value="prime">
                 <input type="email" name="email" placeholder="tu.correo@dgplays.com" required>
                 <div class="button-group">
-                    <button type="submit" name="action" value="prime" class="button">Consultar Código Prime</button>
+                    <button type="submit" name="action" value="code" class="button">Consultar Código Prime</button>
                 </div>
             </form>
         </div>
@@ -259,10 +263,11 @@
         <div class="platform-container crunchyroll-container">
             <h1>Crunchyroll</h1>
             <p>Ingresa tu correo para obtener tu código.</p>
-            <form action="/crunchyroll_code" method="post">
+            <form id="crunchyroll-form" action="/consultar_accion" method="post">
+                <input type="hidden" name="platform" value="crunchyroll">
                 <input type="email" name="email" placeholder="tu.correo@dgplays.com" required>
                 <div class="button-group">
-                    <button type="submit" name="action" value="crunchyroll" class="button">Consultar Código Crunchyroll</button>
+                    <button type="submit" name="action" value="code" class="button">Consultar Código Crunchyroll</button>
                 </div>
             </form>
         </div>
@@ -270,10 +275,11 @@
         <div class="platform-container max-container">
             <h1>HBO Max</h1>
             <p>Ingresa tu correo para obtener tu código.</p>
-            <form action="/max_code" method="post">
+            <form id="max-form" action="/consultar_accion" method="post">
+                <input type="hidden" name="platform" value="max">
                 <input type="email" name="email" placeholder="tu.correo@dgplays.com" required>
                 <div class="button-group">
-                    <button type="submit" name="action" value="max" class="button">Consultar Código Max</button>
+                    <button type="submit" name="action" value="code" class="button">Consultar Código Max</button>
                 </div>
             </form>
         </div>
