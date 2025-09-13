@@ -238,9 +238,13 @@ def consultar_accion_web():
 # =====================
 # Inicio de la aplicación Flask
 # =====================
+def mantener_vivo_thread():
+    def run():
+        port = int(os.environ.get("PORT", 8080))
+        app.run(host="0.0.0.0", port=port, use_reloader=False)
+
+    thread = threading.Thread(target=run)
+    thread.start()
 
 if __name__ == "__main__":
-    mantener_vivo()
-    port = int(os.environ.get("PORT", 8080))
-    logging.info(f"Iniciando Flask app en el puerto {port}")
-    app.run(host="0.0.0.0", port=port)
+    mantener_vivo_thread()
