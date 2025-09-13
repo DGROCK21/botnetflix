@@ -1,14 +1,14 @@
 import os
 import json
 import logging
-from flask import Flask, render_template, request, redirect, url_for
-from keep_alive import mantener_vivo
+from flask import Flask, render_template, request
 import imaplib
 import email
 from email.header import decode_header
 import re
 import requests
 from bs4 import BeautifulSoup
+from imap_tools import MailBox, AND
 
 # Configurar logging para ver mensajes en los logs de Render
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
