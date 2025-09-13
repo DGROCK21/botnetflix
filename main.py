@@ -36,7 +36,7 @@ if not IMAP_USER or not IMAP_PASS:
 app = Flask(__name__)
 
 # =====================
-# FUNCIONES AUXILIARES (ahora integradas)
+# FUNCIONES AUXILIARES (integradas)
 # =====================
 
 def es_correo_autorizado(correo_usuario, plataforma_requerida):
@@ -138,14 +138,14 @@ def obtener_enlace_confirmacion_final_hogar(url_boton_rojo):
         logging.error(f"Error inesperado al procesar la página de Netflix: {e}")
     return None
 
-def navegar_y_extraer_universal():
+def navegar_y_extraer_universal(imap_user, imap_pass):
     """
     Busca el correo de Universal+ y extrae el código de activación de manera precisa.
     """
     asunto_universal = "Código de activación Universal+"
     logging.info(f"Buscando el correo de Universal+ con el asunto: '{asunto_universal}'")
     try:
-        with MailBox('imap.gmail.com').login(IMAP_USER, IMAP_PASS, 'INBOX') as mailbox:
+        with MailBox('imap.gmail.com').login(imap_user, imap_pass, 'INBOX') as mailbox:
             for msg in mailbox.fetch(AND(subject=asunto_universal), reverse=True, limit=1):
                 soup = BeautifulSoup(msg.html, 'html.parser')
                 code_div = soup.find('div', style=lambda value: value and 'font-size: 32px' in value and 'font-weight: 700' in value)
@@ -157,9 +157,9 @@ def navegar_y_extraer_universal():
                         return None, "❌ Se encontró un texto en la etiqueta correcta, pero no coincide con el formato de código."
                 else:
                     return None, "❌ No se pudo encontrar el código de activación. El formato del correo puede haber cambiado."
-        return None, f"❌ No se encontró ningún correo con el asunto: '{asunto_universal}'"
+        return None, f"❌ No se encontró ningún correo con el asunto: '{asunto_clave}'"
     except Exception as e:
-        logging.error(f"Error al conectar o buscar el correo de Universal+: {e}")
+        logging.error(f"❌ Error al conectar o buscar el correo de Universal+: {e}")
         return None, f"❌ Error en la conexión o búsqueda de correo: {str(e)}"
 
 # =====================
