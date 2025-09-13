@@ -236,15 +236,30 @@ def consultar_accion_web():
         return render_template('result.html', status="error", message="❌ Plataforma no válida. Por favor, selecciona una de las opciones.")
 
 # =====================
-# Inicio de la aplicación Flask
+# FUNCIONALIDAD DEL BOT DE TELEGRAM
 # =====================
-def mantener_vivo_thread():
-    def run():
-        port = int(os.environ.get("PORT", 8080))
-        app.run(host="0.0.0.0", port=port, use_reloader=False)
 
-    thread = threading.Thread(target=run)
-    thread.start()
+if os.getenv("BOT_TOKEN"):
+    bot = telebot.TeleBot(os.getenv("BOT_TOKEN"))
 
-if __name__ == "__main__":
-    mantener_vivo_thread()
+    def mantener_vivo_thread():
+        def run():
+            port = int(os.environ.get("PORT", 8080))
+            app_keep_alive = Flask(__name__)
+            @app_keep_alive.route('/')
+            def home():
+                return "Bot y Web activos", 200
+            
+            app_keep_alive.run(host='0.0.0.0', port=port, use_reloader=False)
+
+        thread = threading.Thread(target=run)
+        thread.start()
+
+    @app.route(f"/{os.getenv('BOT_TOKEN')}", methods=['POST'])
+    def webhook():
+        if request.headers.get('content-type') == 'application/json':
+            json_string = request.get_data().decode('utf-8')
+            update = telebot.types.Update.de_json(json_string)
+            bot.process_new_updates([update])
+            return '', 200
+        else:
