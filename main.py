@@ -1,7 +1,8 @@
 import os
 import json
 import logging
-from flask import Flask, render_template, request
+from flask import Flask, render_template, request, redirect, url_for
+from keep_alive import mantener_vivo
 import imaplib
 import email
 from email.header import decode_header
@@ -59,26 +60,38 @@ def buscar_ultimo_correo(imap_user, imap_pass, asunto_clave):
     Busca el último correo con un asunto específico, manejando la codificación de forma robusta.
     """
     try:
-        with MailBox('imap.gmail.com').login(imap_user, imap_pass, 'INBOX') as mailbox:
-            # Buscamos el correo más reciente con el asunto, lo que maneja correctamente la codificación
-            for msg in mailbox.fetch(AND(subject=asunto_clave), reverse=True, limit=1):
-                raw_email = msg.original_bytes
-                email_message = email.message_from_bytes(raw_email)
-                
-                html_content = ""
-                for part in email_message.walk():
-                    content_type = part.get_content_type()
-                    if content_type == "text/html":
-                        charset = part.get_content_charset() or 'utf-8'
-                        html_content = part.get_payload(decode=True).decode(charset, errors='ignore')
-                        break
-                
-                if html_content:
-                    return html_content, None
-                else:
-                    return None, "❌ No se pudo encontrar la parte HTML del correo."
+        imap = imaplib.IMAP4_SSL("imap.gmail.com")
+        imap.login(imap_user, imap_pass)
+        imap.select('inbox')
         
-        return None, f"❌ No se encontró ningún correo con el asunto: '{asunto_clave}'"
+        # Codificamos el asunto para que la búsqueda IMAP no falle con caracteres especiales
+        search_criteria = f'(SUBJECT "{asunto_clave}")'.encode('utf-8')
+        status, messages = imap.search(None, search_criteria)
+        
+        if not messages[0]:
+            return None, f"❌ No se encontró ningún correo con el asunto: '{asunto_clave}'"
+        
+        mail_id = messages[0].split()[-1]
+        status, data = imap.fetch(mail_id, '(RFC822)')
+        
+        raw_email = data[0][1]
+        email_message = email.message_from_bytes(raw_email)
+        
+        html_content = ""
+        for part in email_message.walk():
+            content_type = part.get_content_type()
+            if content_type == "text/html":
+                charset = part.get_content_charset() or 'utf-8'
+                html_content = part.get_payload(decode=True).decode(charset, errors='ignore')
+                break
+        
+        imap.close()
+        imap.logout()
+        
+        if html_content:
+            return html_content, None
+        else:
+            return None, "❌ No se pudo encontrar la parte HTML del correo."
     except Exception as e:
         return None, f"❌ Error en la conexión o búsqueda de correo: {str(e)}"
 
@@ -125,14 +138,14 @@ def obtener_enlace_confirmacion_final_hogar(url_boton_rojo):
         logging.error(f"Error inesperado al procesar la página de Netflix: {e}")
     return None
 
-def navegar_y_extraer_universal(imap_user, imap_pass):
+def navegar_y_extraer_universal():
     """
     Busca el correo de Universal+ y extrae el código de activación de manera precisa.
     """
     asunto_universal = "Código de activación Universal+"
     logging.info(f"Buscando el correo de Universal+ con el asunto: '{asunto_universal}'")
     try:
-        with MailBox('imap.gmail.com').login(imap_user, imap_pass, 'INBOX') as mailbox:
+        with MailBox('imap.gmail.com').login(IMAP_USER, IMAP_PASS, 'INBOX') as mailbox:
             for msg in mailbox.fetch(AND(subject=asunto_universal), reverse=True, limit=1):
                 soup = BeautifulSoup(msg.html, 'html.parser')
                 code_div = soup.find('div', style=lambda value: value and 'font-size: 32px' in value and 'font-weight: 700' in value)
@@ -144,9 +157,9 @@ def navegar_y_extraer_universal(imap_user, imap_pass):
                         return None, "❌ Se encontró un texto en la etiqueta correcta, pero no coincide con el formato de código."
                 else:
                     return None, "❌ No se pudo encontrar el código de activación. El formato del correo puede haber cambiado."
-        
-        return None, f"❌ No se encontró ningún correo con el asunto: '{asunto_clave}'"
+        return None, f"❌ No se encontró ningún correo con el asunto: '{asunto_universal}'"
     except Exception as e:
+        logging.error(f"Error al conectar o buscar el correo de Universal+: {e}")
         return None, f"❌ Error en la conexión o búsqueda de correo: {str(e)}"
 
 # =====================
