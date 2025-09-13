@@ -26,7 +26,7 @@ except json.JSONDecodeError:
     logging.error("❌ Error: Formato JSON inválido en cuentas.json. La validación de correo podría ser inconsistente.")
     cuentas = {}
 
-# Obtener credenciales IMAP y el token del bot desde las variables de entorno de Render
+# Obtener credenciales IMAP desde las variables de entorno de Render
 IMAP_USER = os.getenv("E-MAIL_USER")
 IMAP_PASS = os.getenv("EMAIL_PASS")
 
@@ -145,47 +145,34 @@ def navegar_y_extraer_universal(imap_user, imap_pass):
     asunto_universal = "Código de activación Universal+"
     logging.info(f"Buscando el correo de Universal+ con el asunto: '{asunto_universal}'")
     try:
-        imap = imaplib.IMAP4_SSL("imap.gmail.com")
-        imap.login(imap_user, imap_pass)
-        imap.select('inbox')
-        
-        # Codificamos el asunto para que la búsqueda IMAP no falle con caracteres especiales
-        search_criteria = f'(SUBJECT "{asunto_universal}")'.encode('utf-8')
-        status, messages = imap.search(None, search_criteria)
-        
-        if not messages[0]:
-            return None, f"❌ No se encontró ningún correo con el asunto: '{asunto_clave}'"
-        
-        mail_id = messages[0].split()[-1]
-        status, data = imap.fetch(mail_id, '(RFC822)')
-        
-        raw_email = data[0][1]
-        email_message = email.message_from_bytes(raw_email)
-        
-        html_content = ""
-        for part in email_message.walk():
-            content_type = part.get_content_type()
-            if content_type == "text/html":
-                charset = part.get_content_charset() or 'utf-8'
-                html_content = part.get_payload(decode=True).decode(charset, errors='ignore')
-                break
-        
-        imap.close()
-        imap.logout()
-        
-        if html_content:
-            soup = BeautifulSoup(html_content, 'html.parser')
-            code_div = soup.find('div', style=lambda value: value and 'font-size: 32px' in value and 'font-weight: 700' in value)
-            if code_div:
-                codigo = code_div.text.strip()
-                if re.fullmatch(r'[A-Z0-9]{6,7}', codigo):
-                    return codigo, None
+        with MailBox('imap.gmail.com').login(imap_user, imap_pass, 'INBOX') as mailbox:
+            for msg in mailbox.fetch(AND(subject=asunto_universal), reverse=True, limit=1):
+                raw_email = msg.original_bytes
+                email_message = email.message_from_bytes(raw_email)
+                
+                html_content = ""
+                for part in email_message.walk():
+                    content_type = part.get_content_type()
+                    if content_type == "text/html":
+                        charset = part.get_content_charset() or 'utf-8'
+                        html_content = part.get_payload(decode=True).decode(charset, errors='ignore')
+                        break
+                
+                if html_content:
+                    soup = BeautifulSoup(html_content, 'html.parser')
+                    code_div = soup.find('div', style=lambda value: value and 'font-size: 32px' in value and 'font-weight: 700' in value)
+                    if code_div:
+                        codigo = code_div.text.strip()
+                        if re.fullmatch(r'[A-Z0-9]{6,7}', codigo):
+                            return codigo, None
+                        else:
+                            return None, "❌ Se encontró un texto en la etiqueta correcta, pero no coincide con el formato de código."
+                    else:
+                        return None, "❌ No se pudo encontrar el código de activación. El formato del correo puede haber cambiado."
                 else:
-                    return None, "❌ Se encontró un texto en la etiqueta correcta, pero no coincide con el formato de código."
-            else:
-                return None, "❌ No se pudo encontrar el código de activación. El formato del correo puede haber cambiado."
-        else:
-            return None, "❌ No se pudo encontrar la parte HTML del correo."
+                    return None, "❌ No se pudo encontrar la parte HTML del correo."
+        
+        return None, f"❌ No se encontró ningún correo con el asunto: '{asunto_clave}'"
     except Exception as e:
         return None, f"❌ Error en la conexión o búsqueda de correo: {str(e)}"
 
@@ -253,7 +240,24 @@ def consultar_accion_web():
                 return render_template('result.html', status="warning", message="No se encontró ninguna solicitud pendiente para esta cuenta.")
     
     elif platform == 'universal':
-        return render_template('result.html', status="warning", message="❌ La funcionalidad de Universal+ no está habilitada en esta versión del bot.")
+        if action == 'code':
+            asunto_clave = "Código de activación Universal+"
+            html_correo, error = buscar_ultimo_correo(IMAP_USER, IMAP_PASS, asunto_clave)
+            if error:
+                return render_template('result.html', status="error", message=error)
+            
+            soup = BeautifulSoup(html_correo, 'html.parser')
+            code_div = soup.find('div', style=lambda value: value and 'font-size: 32px' in value and 'font-weight: 700' in value)
+            if code_div:
+                codigo = code_div.text.strip()
+                if re.fullmatch(r'[A-Z0-9]{6,7}', codigo):
+                    return render_template('result.html', status="success", message=f"✅ Tu código de Universal+ es: <strong>{codigo}</strong>.<br>Úsalo en la página de activación.")
+                else:
+                    return render_template('result.html', status="warning", message="❌ Se encontró un texto en la etiqueta correcta, pero no coincide con el formato de código.")
+            else:
+                return render_template('result.html', status="warning", message="❌ No se pudo obtener un código de Universal+ reciente. Asegúrate de haberlo solicitado y que el correo haya llegado.")
+        else:
+            return render_template('result.html', status="error", message="❌ Acción no válida para Universal.")
             
     else:
         logging.warning(f"WEB: Plataforma no válida recibida: {platform}")
