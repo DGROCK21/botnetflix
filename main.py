@@ -1,17 +1,6 @@
 import os
 import json
 import logging
-<<<<<<< HEAD
-import re
-import requests
-import imaplib
-import email
-from email.header import decode_header
-from bs4 import BeautifulSoup
-from imap_tools import MailBox, AND
-from flask import Flask, render_template, request, redirect, url_for
-from threading import Thread
-=======
 import threading
 from flask import Flask, render_template, request
 import imaplib
@@ -23,7 +12,6 @@ from bs4 import BeautifulSoup
 from imap_tools import MailBox, AND
 import telebot
 from telebot import types
->>>>>>> e013e153c896950065fbd5435af76131343dbd3f
 
 # Configuración de Logging para un mejor seguimiento de errores
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -41,15 +29,10 @@ except json.JSONDecodeError:
     cuentas = {}
 
 # Obtener credenciales desde las variables de entorno de Render
-<<<<<<< HEAD
-IMAP_USER = os.getenv("E-MAIL_USER")
-IMAP_PASS = os.getenv("EMAIL_PASS")
-=======
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 IMAP_USER = os.getenv("E-MAIL_USER")
 IMAP_PASS = os.getenv("EMAIL_PASS")
 ADMIN_TELEGRAM_ID = os.getenv("ADMIN_TELEGRAM_ID")
->>>>>>> e013e153c896950065fbd5435af76131343dbd3f
 
 if not IMAP_USER or not IMAP_PASS:
     logging.error("❌ E-MAIL_USER o EMAIL_PASS no están definidos. La funcionalidad de lectura de correos NO ESTARÁ DISPONIBLE.")
@@ -57,31 +40,16 @@ if not IMAP_USER or not IMAP_PASS:
 app = Flask(__name__)
 
 # =====================
-<<<<<<< HEAD
-# FUNCIONES AUXILIARES (integradas)
-=======
 # FUNCIONES AUXILIARES
->>>>>>> e013e153c896950065fbd5435af76131343dbd3f
 # =====================
 
 def es_correo_autorizado(correo_usuario, plataforma_requerida, user_id=None):
     """
-<<<<<<< HEAD
-    Verifica si el correo de usuario pertenece a una cuenta autorizada y a la plataforma correcta.
-=======
     Verifica si el correo de usuario está autorizado para una plataforma específica.
->>>>>>> e013e153c896950065fbd5435af76131343dbd3f
     """
     if not cuentas:
         logging.warning("No hay cuentas cargadas para validación.")
         return False
-<<<<<<< HEAD
-    for correos_list in cuentas.values():
-        for entrada in correos_list:
-            partes = entrada.split("|")
-            correo_en_lista = partes[0].lower()
-            etiqueta_plataforma = partes[1].lower() if len(partes) > 1 else "ninguna"
-=======
     
     if user_id and user_id in cuentas:
         for entrada in cuentas[user_id]:
@@ -89,7 +57,6 @@ def es_correo_autorizado(correo_usuario, plataforma_requerida, user_id=None):
             correo_en_lista = partes[0].lower()
             etiqueta_plataforma = partes[1].lower() if len(partes) > 1 else "ninguna"
             
->>>>>>> e013e153c896950065fbd5435af76131343dbd3f
             if correo_en_lista == correo_usuario.lower() and etiqueta_plataforma == plataforma_requerida.lower():
                 return True
     
@@ -113,11 +80,7 @@ def buscar_ultimo_correo(asunto_clave):
         imap = imaplib.IMAP4_SSL("imap.gmail.com")
         imap.login(IMAP_USER, IMAP_PASS)
         imap.select('inbox')
-<<<<<<< HEAD
-
-=======
         
->>>>>>> e013e153c896950065fbd5435af76131343dbd3f
         search_criteria = f'(SUBJECT "{asunto_clave}")'.encode('utf-8')
         status, messages = imap.search(None, search_criteria)
         
@@ -259,43 +222,23 @@ def consultar_accion_web():
                     return render_template('result.html', status="warning", message="❌ No se pudo obtener el enlace de confirmación final. Contacta al administrador si persiste.")
             else:
                 return render_template('result.html', status="warning", message="No se encontró ninguna solicitud pendiente para esta cuenta.")
-
-    elif platform == 'universal':
-        codigo_universal, error = navegar_y_extraer_universal()
-        if error:
-            return render_template('result.html', status="error", message=error)
-        if codigo_universal:
-            return render_template('result.html', status="success", message=f"✅ Tu código de Universal+ es: <strong>{codigo_universal}</strong>.<br>Úsalo en la página de activación.")
-        else:
-            return render_template('result.html', status="warning", message="❌ No se pudo obtener un código de Universal+ reciente.")
     
+    elif platform == 'universal':
+        return render_template('result.html', status="warning", message="❌ La funcionalidad de Universal+ no está habilitada en esta versión del bot.")
+            
     else:
         return render_template('result.html', status="error", message="❌ Plataforma no válida. Por favor, selecciona una de las opciones.")
 
 # =====================
-<<<<<<< HEAD
-# Función para mantener el bot activo
-# =====================
-def run():
-    app.run(host='0.0.0.0', port=os.environ.get("PORT", 8080))
-
-def mantener_vivo():
-    t = Thread(target=run)
-    t.start()
-
-# =====================
 # Inicio de la aplicación Flask
 # =====================
+def mantener_vivo_thread():
+    def run():
+        port = int(os.environ.get("PORT", 8080))
+        app.run(host="0.0.0.0", port=port, use_reloader=False)
+
+    thread = threading.Thread(target=run)
+    thread.start()
 
 if __name__ == "__main__":
-    mantener_vivo()
-=======
-# Inicio de la aplicación Flask
-# =====================
-
-if __name__ == "__main__":
-    mantener_vivo()
-    port = int(os.environ.get("PORT", 8080))
-    logging.info(f"Iniciando Flask app en el puerto {port}")
-    app.run(host="0.0.0.0", port=port)
->>>>>>> e013e153c896950065fbd5435af76131343dbd3f
+    mantener_vivo_thread()
