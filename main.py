@@ -2,7 +2,7 @@ import os
 import json
 import logging
 from flask import Flask, render_template, request, redirect, url_for
-from keep_alive import mantener_vivo
+import telebot
 import imaplib
 import email
 from email.header import decode_header
@@ -26,17 +26,24 @@ except json.JSONDecodeError:
     logging.error("❌ Error: Formato JSON inválido en cuentas.json. La validación de correo podría ser inconsistente.")
     cuentas = {}
 
-# Obtener credenciales IMAP desde las variables de entorno de Render
+# Obtener credenciales IMAP y el token del bot desde las variables de entorno de Render
+BOT_TOKEN = os.getenv("BOT_TOKEN")
 IMAP_USER = os.getenv("E-MAIL_USER")
 IMAP_PASS = os.getenv("EMAIL_PASS")
+ADMIN_TELEGRAM_ID = os.getenv("ADMIN_TELEGRAM_ID")
 
+if not BOT_TOKEN:
+    logging.error("❌ BOT_TOKEN no está definido. La funcionalidad de Telegram NO ESTARÁ DISPONIBLE.")
 if not IMAP_USER or not IMAP_PASS:
     logging.error("❌ E-MAIL_USER o EMAIL_PASS no están definidos. La funcionalidad de lectura de correos NO ESTARÁ DISPONIBLE.")
+if not ADMIN_TELEGRAM_ID:
+    logging.warning("⚠️ ADMIN_TELEGRAM_ID no está definido. No se enviarán notificaciones.")
 
 app = Flask(__name__)
+bot = telebot.TeleBot(BOT_TOKEN) if BOT_TOKEN else None
 
 # =====================
-# FUNCIONES AUXILIARES (ahora integradas)
+# FUNCIONES AUXILIARES (integradas)
 # =====================
 
 def es_correo_autorizado(correo_usuario, plataforma_requerida):
@@ -253,24 +260,7 @@ def consultar_accion_web():
                 return render_template('result.html', status="warning", message="No se encontró ninguna solicitud pendiente para esta cuenta.")
     
     elif platform == 'universal':
-        if action == 'code':
-            asunto_clave = "Código de activación Universal+"
-            html_correo, error = buscar_ultimo_correo(IMAP_USER, IMAP_PASS, asunto_clave)
-            if error:
-                return render_template('result.html', status="error", message=error)
-            
-            soup = BeautifulSoup(html_correo, 'html.parser')
-            code_div = soup.find('div', style=lambda value: value and 'font-size: 32px' in value and 'font-weight: 700' in value)
-            if code_div:
-                codigo = code_div.text.strip()
-                if re.fullmatch(r'[A-Z0-9]{6,7}', codigo):
-                    return render_template('result.html', status="success", message=f"✅ Tu código de Universal+ es: <strong>{codigo}</strong>.<br>Úsalo en la página de activación.")
-                else:
-                    return render_template('result.html', status="warning", message="❌ Se encontró un texto en la etiqueta correcta, pero no coincide con el formato de código.")
-            else:
-                return render_template('result.html', status="warning", message="❌ No se pudo obtener un código de Universal+ reciente. Asegúrate de haberlo solicitado y que el correo haya llegado.")
-        else:
-            return render_template('result.html', status="error", message="❌ Acción no válida para Universal.")
+        return render_template('result.html', status="warning", message="❌ La funcionalidad de Universal+ no está habilitada en esta versión del bot.")
             
     else:
         logging.warning(f"WEB: Plataforma no válida recibida: {platform}")
