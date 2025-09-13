@@ -1,9 +1,8 @@
 import os
 import json
 import logging
-from flask import Flask, render_template, request
+from flask import Flask, render_template, request, redirect, url_for
 from keep_alive import mantener_vivo
-import telebot
 import imaplib
 import email
 from email.header import decode_header
@@ -27,21 +26,14 @@ except json.JSONDecodeError:
     logging.error("❌ Error: Formato JSON inválido en cuentas.json. La validación de correo podría ser inconsistente.")
     cuentas = {}
 
-# Obtener credenciales IMAP y el token del bot desde las variables de entorno de Render
-BOT_TOKEN = os.getenv("BOT_TOKEN")
+# Obtener credenciales IMAP desde las variables de entorno de Render
 IMAP_USER = os.getenv("E-MAIL_USER")
 IMAP_PASS = os.getenv("EMAIL_PASS")
-ADMIN_TELEGRAM_ID = os.getenv("ADMIN_TELEGRAM_ID")
 
-if not BOT_TOKEN:
-    logging.error("❌ BOT_TOKEN no está definido. La funcionalidad de Telegram NO ESTARÁ DISPONIBLE.")
 if not IMAP_USER or not IMAP_PASS:
     logging.error("❌ E-MAIL_USER o EMAIL_PASS no están definidos. La funcionalidad de lectura de correos NO ESTARÁ DISPONIBLE.")
-if not ADMIN_TELEGRAM_ID:
-    logging.warning("⚠️ ADMIN_TELEGRAM_ID no está definido. No se enviarán notificaciones.")
 
 app = Flask(__name__)
-bot = telebot.TeleBot(BOT_TOKEN) if BOT_TOKEN else None
 
 # =====================
 # FUNCIONES AUXILIARES (ahora integradas)
@@ -162,7 +154,7 @@ def navegar_y_extraer_universal(imap_user, imap_pass):
         status, messages = imap.search(None, search_criteria)
         
         if not messages[0]:
-            return None, f"❌ No se encontró ningún correo con el asunto: '{asunto_universal}'"
+            return None, f"❌ No se encontró ningún correo con el asunto: '{asunto_clave}'"
         
         mail_id = messages[0].split()[-1]
         status, data = imap.fetch(mail_id, '(RFC822)')
@@ -373,4 +365,34 @@ if bot:
                 if ADMIN_TELEGRAM_ID and str(message.from_user.id) != ADMIN_TELEGRAM_ID:
                     mensaje_telegram_admin = f"🚨 NOTIFICACIÓN DE HOGAR NETFLIX (TELEGRAM) 🚨\n\nEl usuario **{correo_busqueda}** ha solicitado actualizar el Hogar Netflix.\n\nEl enlace también se mostró al usuario. Si el usuario no puede acceder, **HAZ CLIC INMEDIATAMENTE AQUÍ**:\n{enlace_final_confirmacion}\n\n⚠️ Este enlace vence muy rápido."
                     try:
-                        bot.send_message(ADMIN_TELEGRAM_ID, mensaje_telegram_admin, parse_
+                        bot.send_message(ADMIN_TELEGRAM_ID, mensaje_telegram_admin, parse_mode='Markdown')
+                        logging.info(f"TELEGRAM: Enlace de hogar final enviado al admin por Telegram (adicional) para {user_email_input}.")
+                    except Exception as e:
+                        logging.error(f"TELEGRAM: Error al enviar notificación ADICIONAL por Telegram: {e}")
+                bot.reply_to(message, mensaje_telegram_usuario, parse_mode='Markdown')
+            else:
+                logging.warning("TELEGRAM: No se pudo extraer el enlace de confirmación final del botón negro.")
+                bot.reply_to(message, "❌ TELEGRAM: No se pudo obtener el enlace de confirmación final. El formato de la página puede haber cambiado.")
+        else:
+            bot.reply_to(message, "❌ TELEGRAM: No se encontró ninguna solicitud pendiente para esta cuenta.")
+    
+    @bot.message_handler(commands=["universal"])
+    def manejar_universal_telegram(message):
+        bot.reply_to(message, "❌ TELEGRAM: La funcionalidad de Universal+ no está habilitada en esta versión del bot. Por favor, usa /code o /hogar para Netflix.")
+    
+    @bot.message_handler(commands=["cuentas"])
+    def mostrar_correos_telegram(message):
+        todos = []
+        user_id = str(message.from_user.id)
+        if user_id in cuentas and isinstance(cuentas[user_id], list):
+            for entrada in cuentas[user_id]:
+                correo = entrada.split("|")[0] if "|" in entrada else entrada
+                todos.append(correo)
+        texto = "📋 Correos registrados para tu ID:\n" + "\n".join(sorted(list(set(todos)))) if todos else "⚠️ No hay correos registrados para tu ID."
+        bot.reply_to(message, texto)
+
+if __name__ == "__main__":
+    mantener_vivo()
+    port = int(os.environ.get("PORT", 8080))
+    logging.info(f"Iniciando Flask app en el puerto {port}")
+    app.run(host="0.0.0.0", port=port)
