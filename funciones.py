@@ -35,7 +35,7 @@ if not IMAP_USER or not IMAP_PASS:
 app = Flask(__name__)
 
 # =====================
-# FUNCIONES AUXILIARES
+# FUNCIONES AUXILIARES (integradas)
 # =====================
 
 def es_correo_autorizado(correo_usuario, plataforma_requerida):
