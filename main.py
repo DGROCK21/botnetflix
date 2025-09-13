@@ -2,7 +2,7 @@ import os
 import json
 import logging
 import threading
-from flask import Flask, render_template, request, redirect, url_for
+from flask import Flask, render_template, request
 import imaplib
 import email
 from email.header import decode_header
@@ -13,7 +13,7 @@ from imap_tools import MailBox, AND
 import telebot
 from telebot import types
 
-# Configuración de Logging
+# Configuración de Logging para un mejor seguimiento de errores
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 # Cargar cuentas autorizadas desde archivo
@@ -166,7 +166,7 @@ def navegar_y_extraer_universal():
                         return None, "❌ Se encontró un texto en la etiqueta correcta, pero no coincide con el formato de código."
                 else:
                     return None, "❌ No se pudo encontrar el código de activación. El formato del correo puede haber cambiado."
-        return None, f"❌ No se encontró ningún correo con el asunto: '{asunto_universal}'"
+        return None, f"❌ No se encontró ningún correo con el asunto: '{asunto_clave}'"
     except Exception as e:
         logging.error(f"Error al conectar o buscar el correo de Universal+: {e}")
         return None, f"❌ Error en la conexión o búsqueda de correo: {str(e)}"
@@ -222,44 +222,23 @@ def consultar_accion_web():
                     return render_template('result.html', status="warning", message="❌ No se pudo obtener el enlace de confirmación final. Contacta al administrador si persiste.")
             else:
                 return render_template('result.html', status="warning", message="No se encontró ninguna solicitud pendiente para esta cuenta.")
-
-    elif platform == 'universal':
-        codigo_universal, error = navegar_y_extraer_universal()
-        if error:
-            return render_template('result.html', status="error", message=error)
-        if codigo_universal:
-            return render_template('result.html', status="success", message=f"✅ Tu código de Universal+ es: <strong>{codigo_universal}</strong>.<br>Úsalo en la página de activación.")
-        else:
-            return render_template('result.html', status="warning", message="❌ No se pudo obtener un código de Universal+ reciente.")
     
+    elif platform == 'universal':
+        return render_template('result.html', status="warning", message="❌ La funcionalidad de Universal+ no está habilitada en esta versión del bot.")
+            
     else:
         return render_template('result.html', status="error", message="❌ Plataforma no válida. Por favor, selecciona una de las opciones.")
 
 # =====================
-# FUNCIONALIDAD DEL BOT DE TELEGRAM
+# Inicio de la aplicación Flask
 # =====================
+def mantener_vivo_thread():
+    def run():
+        port = int(os.environ.get("PORT", 8080))
+        app.run(host="0.0.0.0", port=port, use_reloader=False)
 
-if os.getenv("BOT_TOKEN"):
-    bot = telebot.TeleBot(os.getenv("BOT_TOKEN"))
+    thread = threading.Thread(target=run)
+    thread.start()
 
-    def mantener_vivo_thread():
-        def run():
-            port = int(os.environ.get("PORT", 8080))
-            app_keep_alive = Flask(__name__)
-            @app_keep_alive.route('/')
-            def home():
-                return "Bot y Web activos", 200
-            
-            app_keep_alive.run(host='0.0.0.0', port=port, use_reloader=False)
-
-        thread = threading.Thread(target=run)
-        thread.start()
-
-    @app.route(f"/{os.getenv('BOT_TOKEN')}", methods=['POST'])
-    def webhook():
-        if request.headers.get('content-type') == 'application/json':
-            json_string = request.get_data().decode('utf-8')
-            update = telebot.types.Update.de_json(json_string)
-            bot.process_new_updates([update])
-            return '', 200
-        else:
+if __name__ == "__main__":
+    mantener_vivo_thread()
