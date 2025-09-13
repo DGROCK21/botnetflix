@@ -146,34 +146,22 @@ def navegar_y_extraer_universal(imap_user, imap_pass):
     logging.info(f"Buscando el correo de Universal+ con el asunto: '{asunto_universal}'")
     try:
         with MailBox('imap.gmail.com').login(imap_user, imap_pass, 'INBOX') as mailbox:
-            for msg in mailbox.fetch(AND(subject=asunto_universal), reverse=True, limit=1):
-                raw_email = msg.original_bytes
-                email_message = email.message_from_bytes(raw_email)
-                
-                html_content = ""
-                for part in email_message.walk():
-                    content_type = part.get_content_type()
-                    if content_type == "text/html":
-                        charset = part.get_content_charset() or 'utf-8'
-                        html_content = part.get_payload(decode=True).decode(charset, errors='ignore')
-                        break
-                
-                if html_content:
-                    soup = BeautifulSoup(html_content, 'html.parser')
-                    code_div = soup.find('div', style=lambda value: value and 'font-size: 32px' in value and 'font-weight: 700' in value)
-                    if code_div:
-                        codigo = code_div.text.strip()
-                        if re.fullmatch(r'[A-Z0-9]{6,7}', codigo):
-                            return codigo, None
-                        else:
-                            return None, "❌ Se encontró un texto en la etiqueta correcta, pero no coincide con el formato de código."
+            for msg in mailbox.fetch(AND(subject=asunto_universal), reverse=True):
+                soup = BeautifulSoup(msg.html, 'html.parser')
+                code_div = soup.find('div', style=lambda value: value and 'font-size: 32px' in value and 'font-weight: 700' in value)
+                if code_div:
+                    codigo = code_div.text.strip()
+                    if re.fullmatch(r'[A-Z0-9]{6,7}', codigo):
+                        logging.info(f"✅ Código de Universal+ extraído: {codigo}")
+                        return codigo, None
                     else:
-                        return None, "❌ No se pudo encontrar el código de activación. El formato del correo puede haber cambiado."
+                        logging.warning("❌ Se encontró un texto en la etiqueta correcta, pero no coincide con el formato de código.")
+                        return None, "❌ No se pudo extraer el código. El formato no es válido."
                 else:
-                    return None, "❌ No se pudo encontrar la parte HTML del correo."
-        
-        return None, f"❌ No se encontró ningún correo con el asunto: '{asunto_clave}'"
+                    logging.warning("❌ No se encontró la etiqueta div con el estilo del código.")
+                    return None, "❌ No se pudo encontrar el código de activación. El formato del correo puede haber cambiado."
     except Exception as e:
+        logging.error(f"❌ Error al conectar o buscar el correo de Universal+: {e}")
         return None, f"❌ Error en la conexión o búsqueda de correo: {str(e)}"
 
 # =====================
@@ -226,13 +214,6 @@ def consultar_accion_web():
                 enlace_final_confirmacion = obtener_enlace_confirmacion_final_hogar(link)
                 if enlace_final_confirmacion:
                     mensaje_web = f"✅ Solicitud de Hogar procesada. Por favor, **HAZ CLIC INMEDIATAMENTE** en este enlace para confirmar la actualización:<br><br><strong><a href='{enlace_final_confirmacion}' target='_blank'>{enlace_final_confirmacion}</a></strong><br><br>⚠️ Este enlace vence muy rápido. Si ya lo has usado o ha pasado mucho tiempo, es posible que debas solicitar una nueva actualización en tu TV."
-                    if bot and ADMIN_TELEGRAM_ID:
-                        mensaje_telegram_admin = f"🚨 NOTIFICACIÓN DE HOGAR NETFLIX (WEB) 🚨\n\nEl usuario **{user_email_input}** ha solicitado actualizar el Hogar Netflix.\n\nEl enlace también se mostró en la web. Si el usuario no puede acceder, **HAZ CLIC INMEDIATAMENTE AQUÍ**:\n{enlace_final_confirmacion}\n\n⚠️ Este enlace vence muy rápido."
-                        try:
-                            bot.send_message(ADMIN_TELEGRAM_ID, mensaje_telegram_admin, parse_mode='Markdown')
-                            logging.info(f"WEB: Enlace de hogar final enviado al admin por Telegram (adicional) para {user_email_input}.")
-                        except Exception as e:
-                            logging.error(f"WEB: Error al enviar notificación ADICIONAL por Telegram: {e}")
                     return render_template('result.html', status="success", message=mensaje_web)
                 else:
                     return render_template('result.html', status="warning", message="❌ No se pudo obtener el enlace de confirmación final. Contacta al administrador si persiste.")
@@ -240,31 +221,14 @@ def consultar_accion_web():
                 return render_template('result.html', status="warning", message="No se encontró ninguna solicitud pendiente para esta cuenta.")
     
     elif platform == 'universal':
-        if action == 'code':
-            asunto_clave = "Código de activación Universal+"
-            html_correo, error = buscar_ultimo_correo(IMAP_USER, IMAP_PASS, asunto_clave)
-            if error:
-                return render_template('result.html', status="error", message=error)
-            
-            soup = BeautifulSoup(html_correo, 'html.parser')
-            code_div = soup.find('div', style=lambda value: value and 'font-size: 32px' in value and 'font-weight: 700' in value)
-            if code_div:
-                codigo = code_div.text.strip()
-                if re.fullmatch(r'[A-Z0-9]{6,7}', codigo):
-                    return render_template('result.html', status="success", message=f"✅ Tu código de Universal+ es: <strong>{codigo}</strong>.<br>Úsalo en la página de activación.")
-                else:
-                    return render_template('result.html', status="warning", message="❌ Se encontró un texto en la etiqueta correcta, pero no coincide con el formato de código.")
-            else:
-                return render_template('result.html', status="warning", message="❌ No se pudo obtener un código de Universal+ reciente. Asegúrate de haberlo solicitado y que el correo haya llegado.")
-        else:
-            return render_template('result.html', status="error", message="❌ Acción no válida para Universal.")
+        return render_template('result.html', status="warning", message="❌ La funcionalidad de Universal+ no está habilitada en esta versión del bot.")
             
     else:
         logging.warning(f"WEB: Plataforma no válida recibida: {platform}")
         return render_template('result.html', status="error", message="❌ Plataforma no válida. Por favor, selecciona una de las opciones.")
 
 # =====================
-# COMANDOS DE TELEGRAM
+# Inicio de la aplicación Flask
 # =====================
 
 if __name__ == "__main__":
