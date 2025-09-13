@@ -9,6 +9,7 @@ from email.header import decode_header
 import re
 import requests
 from bs4 import BeautifulSoup
+from imap_tools import MailBox, AND
 
 # Configurar logging para ver mensajes en los logs de Render
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -25,7 +26,7 @@ except json.JSONDecodeError:
     logging.error("❌ Error: Formato JSON inválido en cuentas.json. La validación de correo podría ser inconsistente.")
     cuentas = {}
 
-# Obtener credenciales IMAP desde las variables de entorno de Render
+# Obtener credenciales IMAP y el token del bot desde las variables de entorno de Render
 IMAP_USER = os.getenv("E-MAIL_USER")
 IMAP_PASS = os.getenv("EMAIL_PASS")
 
@@ -35,7 +36,7 @@ if not IMAP_USER or not IMAP_PASS:
 app = Flask(__name__)
 
 # =====================
-# FUNCIONES AUXILIARES (ahora integradas)
+# FUNCIONES AUXILIARES (integradas)
 # =====================
 
 def es_correo_autorizado(correo_usuario, plataforma_requerida):
@@ -261,117 +262,6 @@ def consultar_accion_web():
 # =====================
 # COMANDOS DE TELEGRAM
 # =====================
-
-if bot:
-    @app.route(f"/{BOT_TOKEN}", methods=["POST"])
-    def recibir_update():
-        if request.headers.get('content-type') == 'application/json':
-            json_str = request.get_data().decode("utf-8")
-            update = telebot.types.Update.de_json(json_str)
-            bot.process_new_updates([update])
-            return "", 200
-        else:
-            logging.warning("TELEGRAM: Encabezado Content-Type incorrecto.")
-            return "Bad Request", 400
-
-    @bot.message_handler(commands=["code"])
-    def manejar_code_telegram(message):
-        if not IMAP_USER or not IMAP_PASS:
-            bot.reply_to(message, "❌ Error: La lectura de correos no está configurada. Contacta al administrador.")
-            return
-        bot.reply_to(message, "TELEGRAM: Buscando correo de código, por favor espera unos momentos...")
-        partes = message.text.split()
-        if len(partes) != 2:
-            bot.reply_to(message, "❌ Uso: /code tu_correo_netflix@dgplayk.com")
-            return
-        correo_busqueda = partes[1].lower()
-        user_id = str(message.from_user.id)
-        es_autorizado = False
-        if user_id in cuentas:
-            for entrada in cuentas[user_id]:
-                correo_en_lista = entrada.split("|")[0].lower()
-                if correo_en_lista == correo_busqueda and entrada.endswith("|netflix"):
-                    es_autorizado = True
-                    break
-        if not es_autorizado:
-             bot.reply_to(message, "⚠️ Correo no autorizado o no asignado para esta plataforma.")
-             return
-        asunto_clave = "Código de acceso temporal de Netflix"
-        html_correo, error = buscar_ultimo_correo(IMAP_USER, IMAP_PASS, asunto_clave)
-        if error:
-            bot.reply_to(message, error)
-            return
-        link = extraer_link_con_token_o_confirmacion(html_correo, es_hogar=False)
-        if link:
-            codigo_final = obtener_codigo_de_pagina(link)
-            if codigo_final:
-                bot.reply_to(message, f"✅ TELEGRAM: Tu código de Netflix es: `{codigo_final}`")
-            else:
-                bot.reply_to(message, "❌ TELEGRAM: No se pudo obtener el código activo para esta cuenta.")
-        else:
-            bot.reply_to(message, "❌ TELEGRAM: No se encontró ninguna solicitud pendiente para esta cuenta.")
-
-    @bot.message_handler(commands=["hogar"])
-    def manejar_hogar_telegram(message):
-        if not IMAP_USER or not IMAP_PASS:
-            bot.reply_to(message, "❌ Error: La lectura de correos no está configurada. Contacta al administrador.")
-            return
-        bot.reply_to(message, "TELEGRAM: Buscando correo de hogar, por favor espera unos momentos...")
-        partes = message.text.split()
-        if len(partes) != 2:
-            bot.reply_to(message, "❌ Uso: /hogar tu_correo_netflix@dgplayk.com")
-            return
-        correo_busqueda = partes[1].lower()
-        user_id = str(message.from_user.id)
-        es_autorizado = False
-        if user_id in cuentas:
-            for entrada in cuentas[user_id]:
-                correo_en_lista = entrada.split("|")[0].lower()
-                if correo_en_lista == correo_busqueda and entrada.endswith("|netflix"):
-                    es_autorizado = True
-                    break
-        if not es_autorizado:
-            bot.reply_to(message, "⚠️ Correo no autorizado o no asignado para esta plataforma.")
-            return
-        asunto_parte_clave = "Importante: Cómo actualizar tu Hogar con Netflix"
-        html_correo, error = buscar_ultimo_correo(IMAP_USER, IMAP_PASS, asunto_parte_clave)
-        if error:
-            bot.reply_to(message, error)
-            return
-        link = extraer_link_con_token_o_confirmacion(html_correo, es_hogar=True)
-        if link:
-            logging.info(f"TELEGRAM: Enlace del botón rojo 'Sí, la envié yo' encontrado: {link}. Intentando obtener enlace final de confirmación...")
-            enlace_final_confirmacion = obtener_enlace_confirmacion_final_hogar(link)
-            if enlace_final_confirmacion:
-                mensaje_telegram_usuario = f"🏠 Solicitud de Hogar procesada. Por favor, **HAZ CLIC INMEDIATAMENTE** en este enlace para confirmar la actualización:\n{enlace_final_confirmacion}\n\n⚠️ Este enlace vence muy rápido."
-                if ADMIN_TELEGRAM_ID and str(message.from_user.id) != ADMIN_TELEGRAM_ID:
-                    mensaje_telegram_admin = f"🚨 NOTIFICACIÓN DE HOGAR NETFLIX (TELEGRAM) 🚨\n\nEl usuario **{correo_busqueda}** ha solicitado actualizar el Hogar Netflix.\n\nEl enlace también se mostró al usuario. Si el usuario no puede acceder, **HAZ CLIC INMEDIATAMENTE AQUÍ**:\n{enlace_final_confirmacion}\n\n⚠️ Este enlace vence muy rápido."
-                    try:
-                        bot.send_message(ADMIN_TELEGRAM_ID, mensaje_telegram_admin, parse_mode='Markdown')
-                        logging.info(f"TELEGRAM: Enlace de hogar final enviado al admin por Telegram (adicional) para {user_email_input}.")
-                    except Exception as e:
-                        logging.error(f"TELEGRAM: Error al enviar notificación ADICIONAL por Telegram: {e}")
-                bot.reply_to(message, mensaje_telegram_usuario, parse_mode='Markdown')
-            else:
-                logging.warning("TELEGRAM: No se pudo extraer el enlace de confirmación final del botón negro.")
-                bot.reply_to(message, "❌ TELEGRAM: No se pudo obtener el enlace de confirmación final. El formato de la página puede haber cambiado.")
-        else:
-            bot.reply_to(message, "❌ TELEGRAM: No se encontró ninguna solicitud pendiente para esta cuenta.")
-    
-    @bot.message_handler(commands=["universal"])
-    def manejar_universal_telegram(message):
-        bot.reply_to(message, "❌ TELEGRAM: La funcionalidad de Universal+ no está habilitada en esta versión del bot. Por favor, usa /code o /hogar para Netflix.")
-    
-    @bot.message_handler(commands=["cuentas"])
-    def mostrar_correos_telegram(message):
-        todos = []
-        user_id = str(message.from_user.id)
-        if user_id in cuentas and isinstance(cuentas[user_id], list):
-            for entrada in cuentas[user_id]:
-                correo = entrada.split("|")[0] if "|" in entrada else entrada
-                todos.append(correo)
-        texto = "📋 Correos registrados para tu ID:\n" + "\n".join(sorted(list(set(todos)))) if todos else "⚠️ No hay correos registrados para tu ID."
-        bot.reply_to(message, texto)
 
 if __name__ == "__main__":
     mantener_vivo()
