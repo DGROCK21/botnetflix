@@ -37,7 +37,7 @@ ADMIN_TELEGRAM_ID = os.getenv("ADMIN_TELEGRAM_ID")
 if not IMAP_USER or not IMAP_PASS:
     logging.error("❌ E-MAIL_USER o EMAIL_PASS no están definidos. La funcionalidad de lectura de correos NO ESTARÁ DISPONIBLE.")
 
-app = Flask(__name__)
+app = Flask(__name__, template_folder='templates')
 
 # =====================
 # FUNCIONES AUXILIARES
