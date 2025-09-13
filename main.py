@@ -145,23 +145,48 @@ def navegar_y_extraer_universal(imap_user, imap_pass):
     asunto_universal = "Código de activación Universal+"
     logging.info(f"Buscando el correo de Universal+ con el asunto: '{asunto_universal}'")
     try:
-        with MailBox('imap.gmail.com').login(imap_user, imap_pass, 'INBOX') as mailbox:
-            for msg in mailbox.fetch(AND(subject=asunto_universal), reverse=True):
-                soup = BeautifulSoup(msg.html, 'html.parser')
-                code_div = soup.find('div', style=lambda value: value and 'font-size: 32px' in value and 'font-weight: 700' in value)
-                if code_div:
-                    codigo = code_div.text.strip()
-                    if re.fullmatch(r'[A-Z0-9]{6,7}', codigo):
-                        logging.info(f"✅ Código de Universal+ extraído: {codigo}")
-                        return codigo, None
-                    else:
-                        logging.warning("❌ Se encontró un texto en la etiqueta correcta, pero no coincide con el formato de código.")
-                        return None, "❌ No se pudo extraer el código. El formato no es válido."
+        imap = imaplib.IMAP4_SSL("imap.gmail.com")
+        imap.login(imap_user, imap_pass)
+        imap.select('inbox')
+        
+        # Codificamos el asunto para que la búsqueda IMAP no falle con caracteres especiales
+        search_criteria = f'(SUBJECT "{asunto_universal}")'.encode('utf-8')
+        status, messages = imap.search(None, search_criteria)
+        
+        if not messages[0]:
+            return None, f"❌ No se encontró ningún correo con el asunto: '{asunto_clave}'"
+        
+        mail_id = messages[0].split()[-1]
+        status, data = imap.fetch(mail_id, '(RFC822)')
+        
+        raw_email = data[0][1]
+        email_message = email.message_from_bytes(raw_email)
+        
+        html_content = ""
+        for part in email_message.walk():
+            content_type = part.get_content_type()
+            if content_type == "text/html":
+                charset = part.get_content_charset() or 'utf-8'
+                html_content = part.get_payload(decode=True).decode(charset, errors='ignore')
+                break
+        
+        imap.close()
+        imap.logout()
+        
+        if html_content:
+            soup = BeautifulSoup(html_content, 'html.parser')
+            code_div = soup.find('div', style=lambda value: value and 'font-size: 32px' in value and 'font-weight: 700' in value)
+            if code_div:
+                codigo = code_div.text.strip()
+                if re.fullmatch(r'[A-Z0-9]{6,7}', codigo):
+                    return codigo, None
                 else:
-                    logging.warning("❌ No se encontró la etiqueta div con el estilo del código.")
-                    return None, "❌ No se pudo encontrar el código de activación. El formato del correo puede haber cambiado."
+                    return None, "❌ Se encontró un texto en la etiqueta correcta, pero no coincide con el formato de código."
+            else:
+                return None, "❌ No se pudo encontrar el código de activación. El formato del correo puede haber cambiado."
+        else:
+            return None, "❌ No se pudo encontrar la parte HTML del correo."
     except Exception as e:
-        logging.error(f"❌ Error al conectar o buscar el correo de Universal+: {e}")
         return None, f"❌ Error en la conexión o búsqueda de correo: {str(e)}"
 
 # =====================
