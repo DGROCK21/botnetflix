@@ -10,8 +10,6 @@ import re
 import requests
 from bs4 import BeautifulSoup
 from imap_tools import MailBox, AND
-import telebot
-from telebot import types
 
 # Configuración de Logging para un mejor seguimiento de errores
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -29,15 +27,12 @@ except json.JSONDecodeError:
     cuentas = {}
 
 # Obtener credenciales desde las variables de entorno de Render
-BOT_TOKEN = os.getenv("BOT_TOKEN")
 IMAP_USER = os.getenv("E-MAIL_USER")
 IMAP_PASS = os.getenv("EMAIL_PASS")
-ADMIN_TELEGRAM_ID = os.getenv("ADMIN_TELEGRAM_ID")
+ADMIN_TELEGRAM_ID = os.getenv("ADMIN_TELEGRAM_ID") # Aunque no se use, se mantiene si es necesario para el bot en un futuro.
 
 if not IMAP_USER or not IMAP_PASS:
     logging.error("❌ E-MAIL_USER o EMAIL_PASS no están definidos. La funcionalidad de lectura de correos NO ESTARÁ DISPONIBLE.")
-
-app = Flask(__name__, template_folder='templates')
 
 # =====================
 # FUNCIONES AUXILIARES
@@ -170,6 +165,8 @@ def navegar_y_extraer_universal():
     except Exception as e:
         logging.error(f"Error al conectar o buscar el correo de Universal+: {e}")
         return None, f"❌ Error en la conexión o búsqueda de correo: {str(e)}"
+    
+app = Flask(__name__, template_folder='templates')
 
 # =====================
 # RUTAS WEB (FLASK)
