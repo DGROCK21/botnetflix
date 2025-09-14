@@ -10,11 +10,9 @@
             display: flex; 
             justify-content: center; 
             align-items: center; 
-            min-height: 100vh; /* Usar min-height para permitir que el contenido crezca */
+            height: 100vh; 
             margin: 0; 
             font-family: 'Netflix Sans', Arial, sans-serif; 
-            padding: 20px; /* Añadir padding al body para pantallas pequeñas */
-            box-sizing: border-box; /* Asegura que padding no afecte el width/height total */
         }
         .container { 
             background-color: #222; 
@@ -23,26 +21,14 @@
             text-align: center; 
             color: white; 
             box-shadow: 0 4px 8px rgba(0, 0, 0, 0.4); 
-            width: 350px; /* Ancho base para móviles */
-            max-width: 100%; /* Asegura que no sobrepase el 100% de la pantalla */
-            /* Reglas para centrar en escritorio y limitar el ancho */
-            margin: auto; /* Centrar el contenedor en pantallas grandes */
+            width: 350px; 
+            max-width: 90%; 
         }
-
-        /* MEDIA QUERY para pantallas más grandes (escritorio/tablet) */
-        @media (min-width: 768px) {
-            .container {
-                width: 600px; /* Aumentar el ancho en pantallas de escritorio */
-                padding: 50px; /* Más padding en escritorio */
-            }
-        }
-
         h1 { 
             font-size: 2em; 
             margin-bottom: 25px; 
             text-transform: uppercase; 
             letter-spacing: 1px; 
-            word-break: break-word; /* Para asegurar que títulos muy largos no desborden */
         }
         .success-title { color: #4CAF50; }
         .error-title { color: #e50914; }
@@ -50,24 +36,11 @@
         p { 
             margin-bottom: 20px; 
             font-size: 1.1em; 
-            line-height: 1.6; /* Aumentar interlineado para mejor lectura */
-            text-align: center; /* Centrar el texto por defecto */
-            word-wrap: break-word; /* Crucial: Permite que las palabras largas se rompan y pasen a la siguiente línea */
-            overflow-wrap: break-word; /* Versión moderna de word-wrap */
+            line-height: 1.5; 
         }
         strong { 
             color: #ddd; 
         }
-        a { /* Estilos para el enlace, ya que es la parte clave */
-            color: #007bff; /* Un azul típico para enlaces, puedes ajustar */
-            text-decoration: underline; /* Subrayado para indicar que es un enlace */
-            word-wrap: break-word; /* Asegura que el enlace se rompa si es muy largo */
-            overflow-wrap: break-word; /* Versión moderna */
-            display: block; /* Hace que el enlace ocupe su propia línea si es necesario */
-            margin-top: 10px;
-            margin-bottom: 10px;
-        }
-
         .button { 
             background-color: #e50914; 
             color: white; 
