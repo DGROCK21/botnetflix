@@ -2,7 +2,6 @@ import os
 import json
 import logging
 from flask import Flask, render_template, request, redirect, url_for
-from keep_alive import mantener_vivo
 # Importar funciones necesarias desde funciones.py
 # Asegúrate de que estas funciones solo usen los parámetros que les pasas
 from funciones import buscar_ultimo_correo, extraer_link_con_token_o_confirmacion, obtener_codigo_de_pagina, obtener_enlace_confirmacion_final_hogar 
