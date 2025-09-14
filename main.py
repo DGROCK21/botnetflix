@@ -8,7 +8,7 @@ from funciones import buscar_ultimo_correo, extraer_link_con_token_o_confirmacio
 import telebot # Importamos telebot para la funcionalidad del bot
 
 # Configurar logging para ver mensajes en los logs de Render
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')vivo
 
 # Cargar cuentas desde archivo (solo para validación de correos de usuario autorizados)
 # Este archivo debe estar en la misma carpeta que main.py
@@ -304,7 +304,6 @@ else: # Si no hay BOT_TOKEN, la ruta del webhook debe devolver 200 OK para evita
 # =====================
 
 if __name__ == "__main__":
-    mantener_vivo() # Para asegurar que Render mantenga la app viva
     port = int(os.environ.get("PORT", 8080))
     logging.info(f"Iniciando Flask app en el puerto {port}")
     app.run(host="0.0.0.0", port=port)
