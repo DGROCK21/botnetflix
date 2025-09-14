@@ -3,290 +3,92 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DGPLAY Entertainment - Centro de Acceso</title>
+    <title>NETFLIX . Centro de Acceso</title>
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap');
-
-        body {
-            background-color: #1a1a1a;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            padding: 20px;
-            font-family: 'Roboto', Arial, sans-serif;
-            gap: 20px;
-            min-height: 100vh;
-            background-image: url('https://www.transparenttextures.com/patterns/dark-fish-skin.png');
-            background-repeat: repeat;
+        body { 
+            background-color: #1a1a1a; 
+            display: flex; 
+            justify-content: center; 
+            align-items: center; 
+            height: 100vh; 
+            margin: 0; 
+            font-family: 'Netflix Sans', Arial, sans-serif; 
+            /* Fallback font */
         }
-
-        .dgplay-header {
-            text-align: center;
-            margin-bottom: 40px;
-            color: #ffffff;
+        .container { 
+            background-color: #222; 
+            padding: 40px; 
+            border-radius: 8px; 
+            text-align: center; 
+            color: white; 
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.4); 
+            width: 350px; 
+            max-width: 90%; /* Responsive adjustment */
         }
-        
-        .dgplay-header h1 {
-            font-size: 2.5em;
-            margin: 0;
-            color: #4CAF50;
+        h1 { 
+            color: #e50914; 
+            font-size: 2em; 
+            margin-bottom: 25px; 
+            text-transform: uppercase; 
+            letter-spacing: 1px; 
         }
-
-        .dgplay-header p {
-            margin: 5px 0 0 0;
-            font-size: 1.2em;
-            color: #bbb;
+        p { 
+            margin-bottom: 20px; 
+            font-size: 0.9em; 
+            color: #ccc; 
         }
-        
-        .container-wrapper {
-            display: flex;
-            flex-wrap: wrap;
-            justify-content: center;
-            gap: 20px;
-            max-width: 1200px;
-            margin-bottom: 40px;
+        input[type="email"] { 
+            width: calc(100% - 20px); /* 100% minus padding */
+            padding: 12px 10px; 
+            margin-bottom: 25px; 
+            border: 1px solid #555; 
+            border-radius: 4px; 
+            background-color: #333; 
+            color: white; 
+            box-sizing: border-box; 
+            font-size: 1em; 
         }
-
-        .platform-container {
-            border-radius: 12px;
-            text-align: center;
-            color: white;
-            box-shadow: 0 8px 16px rgba(0, 0, 0, 0.6);
-            width: 350px;
-            max-width: 90%;
-            padding: 30px;
-            transition: transform 0.3s ease, box-shadow 0.3s ease;
-            box-sizing: border-box;
+        input[type="email"]::placeholder { 
+            color: #888; 
         }
-        
-        .platform-container:hover {
-            transform: translateY(-10px);
-            box-shadow: 0 12px 24px rgba(0, 0, 0, 0.8);
+        .button-group { 
+            display: flex; 
+            flex-direction: column; 
+            gap: 15px; 
         }
-
-        .platform-container h1 {
-            font-size: 2em;
-            margin-bottom: 10px;
-            text-transform: uppercase;
-            letter-spacing: 1px;
+        .button { 
+            background-color: #e50914; 
+            color: white; 
+            padding: 12px 25px; 
+            border: none; 
+            border-radius: 4px; 
+            cursor: pointer; 
+            font-size: 1.1em; 
+            transition: background-color 0.3s ease; 
+            width: 100%; 
         }
-
-        input[type="email"] {
-            width: calc(100% - 20px);
-            padding: 12px 10px;
-            margin-bottom: 25px;
-            border: 1px solid #555;
-            border-radius: 6px;
-            background-color: #333;
-            color: white;
-            box-sizing: border-box;
-            font-size: 1em;
+        .button:hover { 
+            background-color: #f40a15; 
         }
-
-        input[type="email"]::placeholder {
-            color: #888;
+        .button.secondary { 
+            background-color: #444; 
         }
-
-        .button-group {
-            display: flex;
-            flex-direction: column;
-            gap: 15px;
-        }
-
-        .button {
-            color: white;
-            padding: 12px 25px;
-            border: none;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 1.1em;
-            transition: background-color 0.3s ease;
-            width: 100%;
-            font-weight: bold;
-        }
-
-        /* --- Estilos específicos para cada plataforma --- */
-        .netflix-container {
-            background-color: #222;
-        }
-        .netflix-container h1 {
-            color: #e50914;
-        }
-        .netflix-container .button {
-            background-color: #e50914;
-        }
-        .netflix-container .button:hover {
-            background-color: #f40a15;
-        }
-
-        .universal-container {
-            background-color: #3b3b3b;
-        }
-        .universal-container h1 {
-            color: #f4d03f;
-        }
-        .universal-container .button {
-            background-color: #f4d03f;
-            color: #1a1a1a;
-        }
-        .universal-container .button:hover {
-            background-color: #fbd451;
-        }
-
-        .disney-container {
-            background-color: #004b98;
-        }
-        .disney-container h1 {
-            color: #ffffff;
-        }
-        .disney-container .button {
-            background-color: #ffffff;
-            color: #004b98;
-        }
-        .disney-container .button:hover {
-            background-color: #f0f0f0;
-        }
-
-        .prime-container {
-            background-color: #0d1e3b;
-        }
-        .prime-container h1 {
-            color: #1c73ac;
-        }
-        .prime-container .button {
-            background-color: #1c73ac;
-        }
-        .prime-container .button:hover {
-            background-color: #2b84be;
-        }
-        
-        .crunchyroll-container {
-            background-color: #3c3c3c;
-        }
-        .crunchyroll-container h1 {
-            color: #ffaa14;
-        }
-        .crunchyroll-container .button {
-            background-color: #ffaa14;
-            color: #1a1a1a;
-        }
-        .crunchyroll-container .button:hover {
-            background-color: #ffc246;
-        }
-
-        .max-container {
-            background-color: #262626;
-        }
-        .max-container h1 {
-            color: #8c00ff;
-        }
-        .max-container .button {
-            background-color: #8c00ff;
-        }
-        .max-container .button:hover {
-            background-color: #9f3cff;
-        }
-
-        .footer {
-            width: 100%;
-            background-color: #000;
-            color: #f0f0f0;
-            text-align: center;
-            padding: 20px 0;
-            font-size: 0.9em;
-            margin-top: auto;
-        }
-
-        .footer span {
-            color: #4CAF50;
-            font-weight: bold;
+        .button.secondary:hover { 
+            background-color: #555; 
         }
     </style>
 </head>
 <body>
-    <div class="dgplay-header">
-        <h1>DGPLAY ENTERTAINMENT</h1>
-        <p>Tu Centro de Acceso Rápido a Códigos de Streaming</p>
-    </div>
-    
-    <div class="container-wrapper">
-        <div class="platform-container netflix-container">
-            <h1>Netflix</h1>
-            <p>Ingresa tu correo para obtener tu código o actualizar tu hogar.</p>
-            <form id="netflix-form" action="/consultar_accion" method="post">
-                <input type="hidden" name="platform" value="netflix">
-                <input type="email" name="email" placeholder="tu.correo@dgplayk.com" required>
-                <div class="button-group">
-                    <button type="submit" name="action" value="code" class="button">Consultar Código</button>
-                    <button type="submit" name="action" value="hogar" class="button">Actualizar Hogar</button>
-                </div>
-            </form>
-        </div>
-
-        <div class="platform-container universal-container">
-            <h1>Universal</h1>
-            <p>Obtén el código de activación para tu dispositivo.</p>
-            <form id="universal-form" action="/consultar_accion" method="post">
-                <input type="hidden" name="platform" value="universal">
-                <input type="email" name="email" placeholder="tu.correo@dgplays.com" required>
-                <div class="button-group">
-                    <button type="submit" name="action" value="code" class="button">Consultar Código Universal</button>
-                </div>
-            </form>
-        </div>
-
-        <div class="platform-container disney-container">
-            <h1>Disney+</h1>
-            <p>Ingresa tu correo para obtener tu código.</p>
-            <form id="disney-form" action="/consultar_accion" method="post">
-                <input type="hidden" name="platform" value="disney">
-                <input type="email" name="email" placeholder="tu.correo@dgplays.com" required>
-                <div class="button-group">
-                    <button type="submit" name="action" value="code" class="button">Consultar Código Disney+</button>
-                </div>
-            </form>
-        </div>
-
-        <div class="platform-container prime-container">
-            <h1>Prime Video</h1>
-            <p>Ingresa tu correo para obtener tu código.</p>
-            <form id="prime-form" action="/consultar_accion" method="post">
-                <input type="hidden" name="platform" value="prime">
-                <input type="email" name="email" placeholder="tu.correo@dgplays.com" required>
-                <div class="button-group">
-                    <button type="submit" name="action" value="code" class="button">Consultar Código Prime</button>
-                </div>
-            </form>
-        </div>
-
-        <div class="platform-container crunchyroll-container">
-            <h1>Crunchyroll</h1>
-            <p>Ingresa tu correo para obtener tu código.</p>
-            <form id="crunchyroll-form" action="/consultar_accion" method="post">
-                <input type="hidden" name="platform" value="crunchyroll">
-                <input type="email" name="email" placeholder="tu.correo@dgplays.com" required>
-                <div class="button-group">
-                    <button type="submit" name="action" value="code" class="button">Consultar Código Crunchyroll</button>
-                </div>
-            </form>
-        </div>
-
-        <div class="platform-container max-container">
-            <h1>HBO Max</h1>
-            <p>Ingresa tu correo para obtener tu código.</p>
-            <form id="max-form" action="/consultar_accion" method="post">
-                <input type="hidden" name="platform" value="max">
-                <input type="email" name="email" placeholder="tu.correo@dgplays.com" required>
-                <div class="button-group">
-                    <button type="submit" name="action" value="code" class="button">Consultar Código Max</button>
-                </div>
-            </form>
-        </div>
-    </div>
-
-    <div class="footer">
-        © 2025 <span>DGPLAY ENTERTAINMENT</span>. Todos los derechos reservados.
+    <div class="container">
+        <h1>Netflix</h1>
+        <p>Ingresa tu correo para obtener tu código o actualizar tu hogar.</p>
+        <form action="/consultar_accion" method="post">
+            <input type="email" name="email" placeholder="tu.correo@dgplayk.com" required>
+            <div class="button-group">
+                <button type="submit" name="action" value="code" class="button">Consultar Código</button>
+                <button type="submit" name="action" value="hogar" class="button">Actualizar Hogar</button>
+            </div>
+        </form>
     </div>
 </body>
 </html>
