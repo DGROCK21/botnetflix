@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NETFLIX . Centro de Acceso</title>
+    <style>
+        body { 
+            background-color: #1a1a1a; 
+            display: flex; 
+            justify-content: center; 
+            align-items: center; 
+            height: 100vh; 
+            margin: 0; 
+            font-family: 'Netflix Sans', Arial, sans-serif; 
+            /* Fallback font */
+        }
+        .container { 
+            background-color: #222; 
+            padding: 40px; 
+            border-radius: 8px; 
+            text-align: center; 
+            color: white; 
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.4); 
+            width: 350px; 
+            max-width: 90%; /* Responsive adjustment */
+        }
+        h1 { 
+            color: #e50914; 
+            font-size: 2em; 
+            margin-bottom: 25px; 
+            text-transform: uppercase; 
+            letter-spacing: 1px; 
+        }
+        p { 
+            margin-bottom: 20px; 
+            font-size: 0.9em; 
+            color: #ccc; 
+        }
+        input[type="email"] { 
+            width: calc(100% - 20px); /* 100% minus padding */
+            padding: 12px 10px; 
+            margin-bottom: 25px; 
+            border: 1px solid #555; 
+            border-radius: 4px; 
+            background-color: #333; 
+            color: white; 
+            box-sizing: border-box; 
+            font-size: 1em; 
+        }
+        input[type="email"]::placeholder { 
+            color: #888; 
+        }
+        .button-group { 
+            display: flex; 
+            flex-direction: column; 
+            gap: 15px; 
+        }
+        .button { 
+            background-color: #e50914; 
+            color: white; 
+            padding: 12px 25px; 
+            border: none; 
+            border-radius: 4px; 
+            cursor: pointer; 
+            font-size: 1.1em; 
+            transition: background-color 0.3s ease; 
+            width: 100%; 
+        }
+        .button:hover { 
+            background-color: #f40a15; 
+        }
+        .button.secondary { 
+            background-color: #444; 
+        }
+        .button.secondary:hover { 
+            background-color: #555; 
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Netflix</h1>
+        <p>Ingresa tu correo para obtener tu código o actualizar tu hogar.</p>
+        <form action="/consultar_accion" method="post">
+            <input type="email" name="email" placeholder="tu.correo@dgplayk.com" required>
+            <div class="button-group">
+                <button type="submit" name="action" value="code" class="button">Consultar Código</button>
+                <button type="submit" name="action" value="hogar" class="button">Actualizar Hogar</button>
+            </div>
+        </form>
+    </div>
+</body>
+</html>

@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Resultado de Solicitud</title>
+    <style>
+        body { 
+            background-color: #1a1a1a; 
+            display: flex; 
+            justify-content: center; 
+            align-items: center; 
+            height: 100vh; 
+            margin: 0; 
+            font-family: 'Netflix Sans', Arial, sans-serif; 
+        }
+        .container { 
+            background-color: #222; 
+            padding: 40px; 
+            border-radius: 8px; 
+            text-align: center; 
+            color: white; 
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.4); 
+            width: 350px; 
+            max-width: 90%; 
+        }
+        h1 { 
+            font-size: 2em; 
+            margin-bottom: 25px; 
+            text-transform: uppercase; 
+            letter-spacing: 1px; 
+        }
+        .success-title { color: #4CAF50; }
+        .error-title { color: #e50914; }
+        .warning-title { color: #FFC107; }
+        p { 
+            margin-bottom: 20px; 
+            font-size: 1.1em; 
+            line-height: 1.5; 
+        }
+        strong { 
+            color: #ddd; 
+        }
+        .button { 
+            background-color: #e50914; 
+            color: white; 
+            padding: 12px 25px; 
+            border: none; 
+            border-radius: 4px; 
+            cursor: pointer; 
+            font-size: 1.1em; 
+            transition: background-color 0.3s ease; 
+            width: 100%; 
+            margin-top: 20px; 
+        }
+        .button:hover { 
+            background-color: #f40a15; 
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1 class="{{ status }}-title">
+            {% if status == 'success' %}¡Éxito!
+            {% elif status == 'error' %}Error
+            {% else %}Atención
+            {% endif %}
+        </h1>
+        <p>{{ message | safe }}</p>
+        <button type="button" class="button" onclick="location.href='/'">Volver</button>
+    </div>
+</body>
+</html>
