@@ -2,4 +2,3 @@ pyTelegramBotAPI
 flask
 requests
 beautifulsoup4
-imap-tools
