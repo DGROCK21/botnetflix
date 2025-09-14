@@ -122,7 +122,7 @@ def consultar_accion_web():
 
     elif action == 'hogar':
         # ASUNTO FLEXIBLE Y ACTUALIZADO: Buscamos una parte constante del asunto para "Actualizar Hogar"
-        asunto_parte_clave = "Importante: Cómo actualizar tu Hogar con Netflix" # <-- Asunto actualizado
+        asunto_parte_clave = "Importante: Cómo actualizar tu Hogar con Netflix" 
         logging.info(f"WEB: Solicitud de hogar para {user_email_input}. Buscando en {IMAP_USER} correo que contenga: '{asunto_parte_clave}'")
         
         html_correo, error = buscar_ultimo_correo(IMAP_USER, IMAP_PASS, asunto_parte_clave) 
@@ -141,23 +141,23 @@ def consultar_accion_web():
             enlace_final_confirmacion = obtener_enlace_confirmacion_final_hogar(link_boton_rojo)
 
             if enlace_final_confirmacion:
-                mensaje_administrador = f"🚨 NOTIFICACIÓN DE HOGAR NETFLIX 🚨\n\nEl usuario **{user_email_input}** ha solicitado actualizar el Hogar Netflix.\n\nPor favor, **HAZ CLIC INMEDIATAMENTE EN ESTE ENLACE** para confirmar la actualización:\n{enlace_final_confirmacion}\n\n⚠️ Este enlace vence muy rápido (aprox. 15 minutos) y Netflix puede bloquear intentos automatizados."
+                # *** CAMBIO CLAVE AQUÍ: MUESTRA EL ENLACE DIRECTAMENTE EN LA WEB ***
+                mensaje_web = f"✅ Solicitud de Hogar procesada. Por favor, **HAZ CLIC INMEDIATAMENTE** en este enlace para confirmar la actualización:<br><br><strong><a href='{enlace_final_confirmacion}' target='_blank'>{enlace_final_confirmacion}</a></strong><br><br>⚠️ Este enlace vence muy rápido. Si ya lo has usado o ha pasado mucho tiempo, es posible que debas solicitar una nueva actualización en tu TV."
                 
+                # Opcional: También enviamos a Telegram como backup o notificación extra
                 if bot and ADMIN_TELEGRAM_ID:
+                    mensaje_telegram_admin = f"🚨 NOTIFICACIÓN DE HOGAR NETFLIX (WEB) 🚨\n\nEl usuario **{user_email_input}** ha solicitado actualizar el Hogar Netflix.\n\nEl enlace también se mostró en la web. Si el usuario no puede acceder, **HAZ CLIC INMEDIATAMENTE AQUÍ**:\n{enlace_final_confirmacion}\n\n⚠️ Este enlace vence muy rápido."
                     try:
-                        bot.send_message(ADMIN_TELEGRAM_ID, mensaje_administrador, parse_mode='Markdown')
-                        logging.info(f"WEB: Enlace de hogar final enviado al admin por Telegram para {user_email_input}.")
-                        return render_template('result.html', status="success", message=f"🏠 Solicitud de Hogar procesada. **El enlace de confirmación ha sido enviado a tu Telegram personal.** Por favor, revísalo y haz clic inmediatamente para confirmar la actualización.<br>Recuerda que este enlace vence rápido.")
+                        bot.send_message(ADMIN_TELEGRAM_ID, mensaje_telegram_admin, parse_mode='Markdown')
+                        logging.info(f"WEB: Enlace de hogar final enviado al admin por Telegram (adicional) para {user_email_input}.")
                     except Exception as e:
-                        logging.error(f"WEB: Error al enviar mensaje de hogar al admin por Telegram: {e}")
-                        return render_template('result.html', status="error", message=f"❌ Error al notificar al administrador por Telegram. Por favor, contacta al administrador directamente con este enlace: {enlace_final_confirmacion}")
-                else:
-                    logging.warning("WEB: No se pudo enviar notificación al admin (bot no inicializado o ADMIN_TELEGRAM_ID no definido).")
-                    # Si no hay bot o ID de admin, mostramos el enlace directamente en la web como último recurso
-                    return render_template('result.html', status="warning", message=f"❌ El bot no pudo notificarte. Por favor, **HAZ CLIC INMEDIATAMENTE** en este enlace para confirmar la actualización:<br>{enlace_final_confirmacion}<br>Recuerda que este enlace vence rápido.")
+                        logging.error(f"WEB: Error al enviar notificación ADICIONAL por Telegram: {e}")
+                
+                return render_template('result.html', status="success", message=mensaje_web)
+
             else:
                 logging.warning("WEB: No se pudo extraer el enlace de confirmación final del botón negro.")
-                return render_template('result.html', status="warning", message="❌ No se pudo obtener el enlace de confirmación final. El formato de la página puede haber cambiado. Contacta al administrador si persiste.")
+                return render_template('result.html', status="warning", message="❌ No se pudo obtener el enlace de confirmación final. El formato de la página de Netflix puede haber cambiado. Contacta al administrador si persiste.")
         else:
             logging.warning("WEB: No se encontró el enlace del botón 'Sí, la envié yo' en el correo principal.")
             return render_template('result.html', status="warning", message="No se encontró ninguna solicitud pendiente para esta cuenta.")
@@ -242,7 +242,7 @@ if bot:
             return
 
         # ASUNTO FLEXIBLE Y ACTUALIZADO: Buscamos una parte constante del asunto para "Actualizar Hogar"
-        asunto_parte_clave = "Importante: Cómo actualizar tu Hogar con Netflix" # <-- Asunto actualizado
+        asunto_parte_clave = "Importante: Cómo actualizar tu Hogar con Netflix" 
         html_correo, error = buscar_ultimo_correo(IMAP_USER, IMAP_PASS, asunto_parte_clave) 
 
         if error:
@@ -257,19 +257,22 @@ if bot:
             enlace_final_confirmacion = obtener_enlace_confirmacion_final_hogar(link_boton_rojo)
 
             if enlace_final_confirmacion:
-                mensaje_administrador = f"🚨 NOTIFICACIÓN DE HOGAR NETFLIX 🚨\n\nEl usuario **{correo_busqueda}** ha solicitado actualizar el Hogar Netflix.\n\nPor favor, **HAZ CLIC INMEDIATAMENTE** en este enlace para confirmar la actualización:\n{enlace_final_confirmacion}\n\n⚠️ Este enlace vence muy rápido (aprox. 15 minutos) y Netflix puede bloquear intentos automatizados."
+                # *** CAMBIO CLAVE AQUÍ: EN EL COMANDO TELEGRAM, MUESTRA EL ENLACE DIRECTAMENTE EN EL CHAT ***
+                mensaje_telegram_usuario = f"🏠 Solicitud de Hogar procesada. Por favor, **HAZ CLIC INMEDIATAMENTE** en este enlace para confirmar la actualización:\n{enlace_final_confirmacion}\n\n⚠️ Este enlace vence muy rápido. Si ya lo has usado o ha pasado mucho tiempo, es posible que debas solicitar una nueva actualización en tu TV."
                 
-                if ADMIN_TELEGRAM_ID:
+                # Opcional: También enviamos a Telegram del admin como backup o notificación extra (si es diferente al usuario que inició el comando)
+                # Si el usuario que usa el comando /hogar es el ADMIN_TELEGRAM_ID, no hace falta enviar dos veces.
+                # Considerar si quieres que el ADMIN_TELEGRAM_ID sea diferente al ID de los usuarios autorizados.
+                if ADMIN_TELEGRAM_ID and str(message.from_user.id) != ADMIN_TELEGRAM_ID:
+                    mensaje_telegram_admin = f"🚨 NOTIFICACIÓN DE HOGAR NETFLIX (TELEGRAM) 🚨\n\nEl usuario **{correo_busqueda}** ha solicitado actualizar el Hogar Netflix.\n\nEl enlace también se mostró al usuario. Si el usuario no puede acceder, **HAZ CLIC INMEDIATAMENTE AQUÍ**:\n{enlace_final_confirmacion}\n\n⚠️ Este enlace vence muy rápido."
                     try:
-                        bot.send_message(ADMIN_TELEGRAM_ID, mensaje_administrador, parse_mode='Markdown')
-                        logging.info(f"TELEGRAM: Enlace de hogar final enviado al admin por Telegram para {correo_busqueda}.")
-                        bot.reply_to(message, f"🏠 Solicitud de Hogar procesada. **El enlace de confirmación ha sido enviado a tu Telegram personal.** Por favor, revísalo y haz clic inmediatamente para confirmar la actualización.<br>Recuerda que este enlace vence rápido.")
+                        bot.send_message(ADMIN_TELEGRAM_ID, mensaje_telegram_admin, parse_mode='Markdown')
+                        logging.info(f"TELEGRAM: Enlace de hogar final enviado al admin por Telegram (adicional) para {correo_busqueda}.")
                     except Exception as e:
-                        logging.error(f"TELEGRAM: Error al enviar mensaje de hogar al admin por Telegram: {e}")
-                        bot.reply_to(message, f"❌ Error al notificar al administrador por Telegram. Por favor, contacta al administrador directamente con este enlace: {enlace_final_confirmacion}")
-                else:
-                    logging.warning("TELEGRAM: ADMIN_TELEGRAM_ID no definido. No se pudo enviar notificación al administrador.")
-                    bot.reply_to(message, f"❌ No se pudo notificar al administrador. Por favor, **pídele al administrador que haga clic inmediatamente** en este enlace: {enlace_final_confirmacion}\n\n⚠️ Este enlace vence muy rápido.")
+                        logging.error(f"TELEGRAM: Error al enviar notificación ADICIONAL por Telegram: {e}")
+                
+                bot.reply_to(message, mensaje_telegram_usuario, parse_mode='Markdown')
+
             else:
                 logging.warning("TELEGRAM: No se pudo extraer el enlace de confirmación final del botón negro.")
                 bot.reply_to(message, "❌ TELEGRAM: No se pudo obtener el enlace de confirmación final. El formato de la página puede haber cambiado.")
