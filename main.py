@@ -345,42 +345,4 @@ def consultar_accion_web():
     elif platform == 'disney':
         if action == 'code':
             asunto_clave = "Tu código de acceso único para Disney+"
-            html_correo, error = buscar_ultimo_correo_disney(asunto_clave)
-            if error:
-                return render_template('result.html', status="error", message=f"❌ No se encontró un correo válido. La solicitud podría ser un intento de cambio de contraseña.")
-
-            codigo, error_extraccion = extraer_codigo_de_correo_disney(html_correo)
-            if error_extraccion:
-                return render_template('result.html', status="warning", message=error_extraccion)
-            else:
-                return render_template('result.html', status="success", message=f"✅ Tu código de Disney+ es: <strong>{codigo}</strong>.<br>Úsalo en tu TV o dispositivo.")
-
-        elif action == 'hogar':
-            asunto_parte_clave = "¿Vas a actualizar tu Hogar de Disney+?"
-            html_correo, error = buscar_ultimo_correo_disney(asunto_parte_clave)
-            if error:
-                return render_template('result.html', status="error", message="❌ No se encontró una solicitud pendiente para esta cuenta.")
-            
-            codigo, error_extraccion = extraer_codigo_de_correo_disney(html_correo)
-            if error_extraccion:
-                return render_template('result.html', status="warning", message=error_extraccion)
-            else:
-                return render_template('result.html', status="success", message=f"✅ Tu código de Disney+ para actualizar el Hogar es: <strong>{codigo}</strong>.")
-
-    else:
-        return render_template('result.html', status="error", message="❌ Plataforma no válida. Por favor, selecciona una de las opciones.")
-
-# =====================
-# Inicio de la aplicación Flask
-# =====================
-
-def mantener_vivo_thread():
-    def run():
-        port = int(os.environ.get("PORT", 5000))
-        app.run(host="0.0.0.0", port=port, use_reloader=False)
-
-    thread = threading.Thread(target=run)
-    thread.start()
-
-if __name__ == "__main__":
-    mantener_vivo_thread()
+            return render_template('result.
