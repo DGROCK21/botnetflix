@@ -169,7 +169,7 @@ def navegar_y_extraer_universal():
         return None, f"❌ No se encontró ningún correo con el asunto: '{asunto_universal}'"
     except Exception as e:
         logging.error(f"Error al conectar o buscar el correo de Universal+: {e}")
-        return None, f"❌ Error en la conexión o búsqueda de correo: {str(e)}")
+        return None, f"❌ Error en la conexión o búsqueda de correo: {str(e)}"
 
 # Funciones de Amazon Prime Video
 def buscar_ultimo_correo_prime(asunto_clave):
@@ -210,7 +210,7 @@ def buscar_ultimo_correo_prime(asunto_clave):
             return None, "❌ No se pudo encontrar la parte HTML del correo."
     except Exception as e:
         logging.error(f"Error en la conexión o búsqueda de correo: {str(e)}")
-        return None, f"❌ Error en la conexión o búsqueda de correo: {str(e)}")
+        return None, f"❌ Error en la conexión o búsqueda de correo: {str(e)}"
     
 def extraer_codigo_de_pagina_prime(html_content):
     """
@@ -259,7 +259,7 @@ def buscar_ultimo_correo_disney(asunto_clave):
             return None, "❌ No se pudo encontrar la parte HTML del correo."
     except Exception as e:
         logging.error(f"Error en la conexión o búsqueda de correo: {str(e)}")
-        return None, f"❌ Error en la conexión o búsqueda de correo: {str(e)}")
+        return None, f"❌ Error en la conexión o búsqueda de correo: {str(e)}"
 
 def extraer_codigo_de_correo_disney(html_content):
     """
@@ -345,7 +345,15 @@ def consultar_accion_web():
     elif platform == 'disney':
         if action == 'code':
             asunto_clave = "Tu código de acceso único para Disney+"
-            return render_template('result.html', status="error", message=f"❌ Por razones de seguridad, la función de obtención de código de acceso genérico de Disney+ ha sido deshabilitada para evitar robos de cuenta. Por favor, usa la función de 'Actualizar Hogar' si es necesario.")
+            html_correo, error = buscar_ultimo_correo_disney(asunto_clave)
+            if error:
+                return render_template('result.html', status="error", message=f"❌ No se encontró un correo válido. La solicitud podría ser un intento de cambio de contraseña.")
+
+            codigo, error_extraccion = extraer_codigo_de_correo_disney(html_correo)
+            if error_extraccion:
+                return render_template('result.html', status="warning", message=error_extraccion)
+            else:
+                return render_template('result.html', status="success", message=f"✅ Tu código de Disney+ es: <strong>{codigo}</strong>.<br>Úsalo en tu TV o dispositivo.")
 
         elif action == 'hogar':
             asunto_parte_clave = "¿Vas a actualizar tu Hogar de Disney+?"
