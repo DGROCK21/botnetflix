@@ -41,7 +41,6 @@
         
         .container-wrapper {
             display: flex;
-            flex-wrap: wrap;
             justify-content: center;
             gap: 20px;
             max-width: 1200px;
@@ -52,7 +51,7 @@
             border-radius: 12px;
             text-align: center;
             color: white;
-            box-shadow: 0 8px 16px rgba(0, 0, 0, 0.6);
+            box-shadow: 0 0px 16px rgba(0, 0, 0, 0.6);
             width: 350px;
             max-width: 90%;
             padding: 30px;
@@ -108,7 +107,7 @@
 
         /* --- Estilos específicos para cada plataforma --- */
         .netflix-container {
-            background-color: #222;
+            background-color: #2e2e2e;
         }
         .netflix-container h1 {
             color: #e50914;
@@ -118,6 +117,20 @@
         }
         .netflix-container .button:hover {
             background-color: #f40a15;
+        }
+
+        .disney-container {
+            background-color: #004b98;
+        }
+        .disney-container h1 {
+            color: #ffffff;
+        }
+        .disney-container .button {
+            background-color: #ffffff;
+            color: #004b98;
+        }
+        .disney-container .button:hover {
+            background-color: #f0f0f0;
         }
 
         .prime-container {
@@ -176,7 +189,20 @@
                 <input type="hidden" name="platform" value="prime">
                 <input type="email" name="email" placeholder="tu.correo@dgplays.com" required>
                 <div class="button-group">
-                    <button type="submit" name="action" value="code" class="button">Consultar Código Prime</button>
+                    <button type="submit" name="action" value="code" class="button">Consultar Código</button>
+                </div>
+            </form>
+        </div>
+
+        <div class="platform-container disney-container">
+            <h1>Disney+</h1>
+            <p>Ingresa tu correo para obtener tu código o actualizar tu hogar.</p>
+            <form id="disney-form" action="/consultar_accion" method="post">
+                <input type="hidden" name="platform" value="disney">
+                <input type="email" name="email" placeholder="tu.correo@dgplays.com" required>
+                <div class="button-group">
+                    <button type="submit" name="action" value="code" class="button">Consultar Código</button>
+                    <button type="submit" name="action" value="hogar" class="button">Actualizar Hogar</button>
                 </div>
             </form>
         </div>
