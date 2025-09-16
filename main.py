@@ -347,7 +347,7 @@ def consultar_accion_web():
             asunto_clave = "Tu código de acceso único para Disney+"
             html_correo, error = buscar_ultimo_correo_disney(asunto_clave)
             if error:
-                return render_template('result.html', status="error", message=f"❌ Por razones de seguridad, la función de obtención de código de acceso genérico de Disney+ ha sido deshabilitada para evitar robos de cuenta. Por favor, usa la función de 'Actualizar Hogar' si es necesario.")
+                return render_template('result.html', status="error", message="❌ No se encontró un correo válido. La solicitud podría ser un intento de cambio de contraseña.")
 
             codigo, error_extraccion = extraer_codigo_de_correo_disney(html_correo)
             if error_extraccion:
