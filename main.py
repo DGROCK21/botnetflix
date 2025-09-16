@@ -67,7 +67,7 @@ def es_correo_autorizado(correo_usuario, plataforma_requerida, user_id=None):
                 correo_en_lista = partes[0].lower()
                 etiqueta_plataforma = partes[1].lower() if len(partes) > 1 else "ninguna"
                 
-                if correo_en_lista == correo_en_lista.lower() and etiqueta_plataforma == plataforma_requerida.lower():
+                if correo_en_lista == correo_usuario.lower() and etiqueta_plataforma == plataforma_requerida.lower():
                     return True
     
     return False
@@ -181,8 +181,8 @@ def buscar_ultimo_correo_prime(asunto_clave):
         imap.login(IMAP_USER, IMAP_PASS)
         imap.select('inbox')
         
-        search_criteria = f'(SUBJECT "{asunto_clave}")'.encode('utf-8')
-        status, messages = imap.search(None, search_criteria)
+        # Corrección para el error de SEARCH command usando el comando X-GM-RAW de Gmail
+        status, messages = imap.search(None, 'X-GM-RAW', f'subject:"{asunto_clave}"')
         
         if not messages[0]:
             return None, f"❌ No se encontró ningún correo con el asunto: '{asunto_clave}'"
@@ -230,8 +230,8 @@ def buscar_ultimo_correo_disney(asunto_clave):
         imap.login(IMAP_USER, IMAP_PASS)
         imap.select('inbox')
         
-        search_criteria = f'(SUBJECT "{asunto_clave}")'.encode('utf-8')
-        status, messages = imap.search(None, search_criteria)
+        # Corrección para el error de SEARCH command usando el comando X-GM-RAW de Gmail
+        status, messages = imap.search(None, 'X-GM-RAW', f'subject:"{asunto_clave}"')
         
         if not messages[0]:
             return None, f"❌ No se encontró ningún correo con el asunto: '{asunto_clave}'"
