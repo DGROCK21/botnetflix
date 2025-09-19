@@ -273,5 +273,4 @@ def obtener_codigo_de_pagina(url_netflix):
 # La función confirmar_hogar_netflix original se elimina porque la acción es asistida manualmente.
 # Si el usuario quiere el enlace para el clic final, la nueva función `obtener_enlace_confirmacion_final_hogar` se encargará de eso.
 
-}
 Este es el funciones py ANTIGUO
