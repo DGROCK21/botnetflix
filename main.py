@@ -2,385 +2,276 @@ import os
 import json
 import logging
 import threading
-from flask import Flask, render_template, request
+from flask import Flask, render_template, request, redirect, url_for
 import imaplib
 import email
 from email.header import decode_header
 import re
 import requests
 from bs4 import BeautifulSoup
-from imap_tools import MailBox, AND
 import telebot
 from telebot import types
 
-# Configuración de Logging para un mejor seguimiento de errores
+# Configurar logging para ver mensajes en los logs de Render
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# Cargar cuentas autorizadas desde archivo
+# Cargar cuentas desde archivo (solo para validación de correos de usuario autorizados)
 try:
     with open("cuentas.json", "r") as file:
         cuentas = json.load(file)
     logging.info("Cuentas cargadas exitosamente desde cuentas.json")
 except FileNotFoundError:
     logging.error("❌ Error: cuentas.json no encontrado. La validación de correo no funcionará.")
-    cuentas = {}
+    cuentas = {} # Inicializa como diccionario vacío para evitar errores posteriores
 except json.JSONDecodeError:
     logging.error("❌ Error: Formato JSON inválido en cuentas.json. La validación de correo podría ser inconsistente.")
     cuentas = {}
 
-# Obtener credenciales desde las variables de entorno de Render
+# Obtener credenciales IMAP y el token del bot desde las variables de entorno de Render
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 IMAP_USER = os.getenv("E-MAIL_USER")
 IMAP_PASS = os.getenv("EMAIL_PASS")
-ADMIN_TELEGRAM_ID = os.getenv("ADMIN_TELEGRAM_ID")
+ADMIN_TELEGRAM_ID = os.getenv("ADMIN_TELEGRAM_ID") # Asegúrate de definir esta variable en Render con tu ID de Telegram
 
+if not BOT_TOKEN:
+    logging.error("❌ BOT_TOKEN no está definido en las variables de entorno de Render. La funcionalidad de Telegram NO ESTARÁ DISPONIBLE.")
 if not IMAP_USER or not IMAP_PASS:
-    logging.error("❌ E-MAIL_USER o EMAIL_PASS no están definidos. La funcionalidad de lectura de correos NO ESTARÁ DISPONIBLE.")
+    logging.error("❌ E-MAIL_USER o EMAIL_PASS no están definidos en las variables de entorno de Render. La funcionalidad de lectura de correos NO ESTARÁ DISPONIBLE.")
+    # Si estas no están, el bot no podrá conectarse a Gmail, lo que es crítico.
+if not ADMIN_TELEGRAM_ID:
+    logging.warning("⚠️ ADMIN_TELEGRAM_ID no está definido. No se enviarán notificaciones al administrador.")
 
-bot = telebot.TeleBot(BOT_TOKEN)
+
+# Inicializar Flask
+app = Flask(__name__)
+
+# Inicializar Telebot solo si el token está presente
+if BOT_TOKEN:
+    bot = telebot.TeleBot(BOT_TOKEN)
+    logging.info("Bot de Telegram inicializado.")
+else:
+    bot = None # Establecemos bot a None para evitar errores si no hay token
 
 # =====================
-# FUNCIONES AUXILIARES
+# Funciones auxiliares para la web y el bot de Telegram
 # =====================
 
-def es_correo_autorizado(correo_usuario, plataforma_requerida, user_id=None):
+def es_correo_autorizado(correo_usuario):
     """
-    Verifica si el correo de usuario está autorizado para una plataforma específica.
+    Verifica si el correo de usuario (ej. @dgplayk.com) pertenece a una de las cuentas autorizadas en cuentas.json.
     """
     if not cuentas:
-        logging.warning("No hay cuentas cargadas para validación.")
+        logging.warning("No hay cuentas cargadas para validación. Todos los correos serán rechazados por el bot.")
         return False
-    
-    if user_id and user_id in cuentas:
-        for entrada in cuentas[user_id]:
-            partes = entrada.split("|")
-            correo_en_lista = partes[0].lower()
-            etiqueta_plataforma = partes[1].lower() if len(partes) > 1 else "ninguna"
-            
-            if correo_en_lista == correo_usuario.lower() and etiqueta_plataforma == plataforma_requerida.lower():
+        
+    for user_id, correos_list in cuentas.items():
+        for entrada in correos_list:
+            # La entrada puede ser "correo@dominio.com" o "correo@dominio.com|user_imap|pass_imap"
+            # Nos interesa solo la primera parte para comparar con el input del usuario
+            correo_en_lista = entrada.split("|")[0].lower()
+            if correo_en_lista == correo_usuario.lower():
                 return True
-    
-    if user_id is None:
-        for user_data in cuentas.values():
-            for entrada in user_data:
-                partes = entrada.split("|")
-                correo_en_lista = partes[0].lower()
-                etiqueta_plataforma = partes[1].lower() if len(partes) > 1 else "ninguna"
-                
-                if correo_en_lista == correo_usuario.lower() and etiqueta_plataforma == plataforma_requerida.lower():
-                    return True
-    
     return False
 
-def buscar_ultimo_correo(asunto_clave):
+
+def buscar_ultimo_correo(usuario_imap, contrasena_imap, asunto_parte_clave, num_mensajes_revisar=50):
     """
-    Busca el último correo con un asunto específico, manejando la codificación.
+    Busca el último correo que CONTIENE una parte del asunto clave para la cuenta IMAP especificada.
+    Retorna el HTML del correo y None si tiene éxito, o None y un mensaje de error.
     """
+    if not usuario_imap or not contrasena_imap:
+        return None, "❌ Error interno: Credenciales IMAP no configuradas."
+    
     try:
-        imap = imaplib.IMAP4_SSL("imap.gmail.com")
-        imap.login(IMAP_USER, IMAP_PASS)
-        imap.select('inbox')
+        logging.info(f"Intentando conectar a IMAP para {usuario_imap}...")
+        mail = imaplib.IMAP4_SSL("imap.gmail.com")
+        mail.login(usuario_imap, contrasena_imap)
+        mail.select("inbox")
+        logging.info("Conexión IMAP exitosa. Buscando correos.")
         
-        # Corrección para el error de SEARCH command usando el comando X-GM-RAW de Gmail
-        status, messages = imap.search(None, 'X-GM-RAW', f'subject:"{asunto_clave}"')
+        _, mensajes = mail.search(None, "ALL") 
+        mensajes = mensajes[0].split()
+
+        # Revisar un número limitado de mensajes recientes para eficiencia
+        mensajes_reversados = reversed(mensajes[-min(num_mensajes_revisar, len(mensajes)):])
         
-        if not messages[0]:
-            return None, f"❌ No se encontró ningún correo con el asunto: '{asunto_clave}'"
-        
-        mail_id = messages[0].split()[-1]
-        status, data = imap.fetch(mail_id, '(RFC822)')
-        
-        raw_email = data[0][1]
-        email_message = email.message_from_bytes(raw_email)
-        
-        html_content = ""
-        for part in email_message.walk():
-            content_type = part.get_content_type()
-            if content_type == "text/html":
-                charset = part.get_content_charset() or 'utf-8'
-                html_content = part.get_payload(decode=True).decode(charset, errors='ignore')
-                break
-        
-        imap.close()
-        imap.logout()
-        
-        if html_content:
-            return html_content, None
-        else:
-            return None, "❌ No se pudo encontrar la parte HTML del correo."
+        for num in mensajes_reversados:
+            _, datos = mail.fetch(num, "(RFC822)")
+            mensaje = email.message_from_bytes(datos[0][1])
+
+            try:
+                asunto_parts = decode_header(mensaje["Subject"])
+                asunto = ""
+                for part, encoding in asunto_parts:
+                    if isinstance(part, bytes):
+                        asunto += part.decode(encoding or "utf-8", errors='ignore')
+                    else:
+                        asunto += part
+            except Exception as e:
+                asunto = mensaje.get("Subject", "Sin Asunto") 
+                logging.warning(f"No se pudo decodificar el asunto: {e}. Usando asunto crudo: {asunto}")
+
+            # CAMBIO CLAVE AQUÍ: Buscar si el asunto CONTIENE la parte clave
+            if asunto_parte_clave.lower() in asunto.lower():
+                logging.info(f"Parte del asunto '{asunto_parte_clave}' encontrada en '{asunto}'. Extrayendo HTML.")
+                
+                html_content = None
+                if mensaje.is_multipart():
+                    for parte in mensaje.walk():
+                        ctype = parte.get_content_type()
+                        cdisp = str(parte.get('Content-Disposition'))
+                        if ctype == 'text/html' and 'attachment' not in cdisp:
+                            try:
+                                html_content = parte.get_payload(decode=True).decode(parte.get_content_charset() or "utf-8", errors='ignore')
+                                break 
+                            except Exception as e:
+                                logging.warning(f"Error decodificando parte HTML: {e}")
+                else:
+                    try:
+                        if mensaje.get_content_type() == 'text/html':
+                            html_content = mensaje.get_payload(decode=True).decode(mensaje.get_content_charset() or "utf-8", errors='ignore')
+                    except Exception as e:
+                        logging.warning(f"Error decodificando mensaje no multipart: {e}")
+
+                if html_content:
+                    logging.info("HTML del correo extraído con éxito.")
+                    mail.logout()
+                    return html_content, None
+                else:
+                    logging.warning(f"No se pudo extraer contenido HTML del correo con asunto: {asunto}")
+
+
+        mail.logout()
+        logging.info(f"No se encontró un correo reciente con el asunto que contiene '{asunto_parte_clave}' para {usuario_imap}.")
+        return None, f"❌ No se encontró un correo reciente de Netflix para esta acción. Asegúrate de haberla solicitado y que el correo haya llegado."
+
+    except imaplib.IMAP4.error as e:
+        logging.error(f"Error de IMAP al acceder al correo {usuario_imap}: {e}. Verifica la contraseña de aplicación de Gmail.")
+        return None, f"⚠️ Error de autenticación o IMAP: {str(e)}. Asegúrate de usar una contraseña de aplicación de Gmail (si tienes 2FA) y que la configuración IMAP esté habilitada."
     except Exception as e:
-        logging.error(f"Error en la conexión o búsqueda de correo: {str(e)}")
-        return None, f"❌ Error en la conexión o búsqueda de correo: {str(e)}"
+        logging.exception(f"Error inesperado al buscar correo para {usuario_imap}")
+        return None, f"⚠️ Error inesperado al acceder al correo: {str(e)}"
+
 
 def extraer_link_con_token_o_confirmacion(html_content, es_hogar=False):
-    """Extrae el enlace de un botón específico del correo de Netflix."""
+    """
+    Extrae el enlace relevante del HTML del correo.
+    Para "hogar", busca el botón rojo "Sí, la envié yo" del primer correo.
+    Para "código", busca enlaces con 'nftoken='.
+    """
     soup = BeautifulSoup(html_content, 'html.parser')
+    
     if es_hogar:
-        link_tag = soup.find('a', href=lambda href: href and 'confirm-home-membership' in href)
-    else:
-        link_tag = soup.find('a', href=lambda href: href and 'code-request' in href)
-    return link_tag['href'] if link_tag else None
-
-def obtener_codigo_de_pagina(url):
-    """Visita el enlace del correo de Netflix y extrae el código final."""
-    try:
-        response = requests.get(url, timeout=10)
-        response.raise_for_status()
-        soup = BeautifulSoup(response.text, 'html.parser')
-        codigo_tag = soup.find('div', class_='code')
-        return codigo_tag.text.strip() if codigo_tag else None
-    except requests.exceptions.RequestException as e:
-        logging.error(f"Error al acceder a la página de Netflix para obtener el código: {e}")
-    except Exception as e:
-        logging.error(f"Error inesperado al procesar la página de Netflix: {e}")
+        # Busca el botón rojo "Sí, la envié yo"
+        boton_rojo = soup.find('a', string=re.compile(r'Sí, la envié yo', re.IGNORECASE))
+        if boton_rojo and 'href' in boton_rojo.attrs:
+            link = boton_rojo['href']
+            logging.info(f"Enlace del botón 'Sí, la envié yo' encontrado: {link}")
+            return link
+    
+    # Busca enlaces con nftoken para el código de acceso temporal
+    for a_tag in soup.find_all('a', href=True):
+        link = a_tag['href']
+        if "nftoken=" in link:
+            logging.info(f"Enlace con nftoken encontrado: {link}")
+            return link
+            
+    logging.info("No se encontró ningún enlace relevante en el HTML del correo inicial.")
     return None
 
 def obtener_enlace_confirmacion_final_hogar(url_boton_rojo):
-    """Visita el enlace del correo de hogar y extrae el enlace de confirmación final."""
+    """
+    Visita la URL del botón rojo 'Sí, la envié yo' y extrae el enlace del botón negro 'Confirmar actualización'.
+    """
+    try: # <-- Inicio del bloque try
+        logging.info(f"Visitando URL del botón rojo para obtener el enlace final de confirmación: {url_boton_rojo}")
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.4896.127 Safari/537.36', # User-Agent más actualizado
+            'Referer': 'https://www.netflix.com/' 
+        }
+        # Usamos allow_redirects=True para seguir la redirección a la página del botón negro
+        response = requests.get(url_boton_rojo, headers=headers, allow_redirects=True, timeout=30) 
+        response.raise_for_status() # Lanza excepción para errores HTTP (4xx o 5xx)
+
+        html_pagina_final_confirmacion = response.text
+        logging.info("Página de confirmación final obtenida. Buscando el botón 'Confirmar actualización'...")
+        
+        soup = BeautifulSoup(html_pagina_final_confirmacion, 'html.parser')
+        
+        # Buscamos el botón negro por su texto y data-uia (el que estaba en la captura de pantalla)
+        # Es vital que esta búsqueda sea precisa
+        boton_confirmar = soup.find('button', attrs={'data-uia': 'set-primary-location-action'}, string=re.compile(r'Confirmar actualización', re.IGNORECASE))
+        
+        if not boton_confirmar:
+            # Fallback si el data-uia o el texto cambian un poco, buscar por el <form> donde suele estar
+            # O por alguna clase CSS distintiva del botón si es posible.
+            logging.warning("No se encontró el botón de Confirmar actualización por data-uia o texto directo. Intentando buscar en formularios o enlaces si es posible.")
+            # Si el botón negro es un submit de un form, podemos buscar la URL del action del form
+            form = soup.find('form', action=True)
+            if form and 'action' in form.attrs:
+                # Esto es un placeholder, la URL exacta del action del form podría ser relativa
+                # O la acción del botón es JS. Esta es la parte más compleja sin Selenium.
+                logging.warning("Se encontró un formulario. Su acción podría ser la URL de confirmación.")
+                return response.url # Retornamos la URL de la página si el botón es un submit JS
+                
+        # Si el botón es un <button> que activa una acción JavaScript, la URL a enviar es la de la página actual
+        # porque el 'clic' real es una petición POST/GET activada por JS en esa página.
+        # En la mayoría de los casos, la URL de la página donde se encuentra el botón es la que hay que "visitar" de nuevo (POST/GET).
+        # Para el propósito de pasar un LINK al administrador, le pasamos la URL actual de la página.
+        if boton_confirmar:
+             logging.info("Botón 'Confirmar actualización' encontrado. Retornando la URL de la página.")
+             return response.url # Devolvemos la URL actual de la página donde está el botón
+            
+        logging.warning("No se encontró el botón de 'Confirmar actualización' ni un formulario de acción para el hogar.")
+        return None
+
+    except requests.exceptions.Timeout: # <-- Bloque except del try principal
+        logging.error(f"Tiempo de espera agotado al visitar {url_boton_rojo}")
+        return None
+    except requests.exceptions.RequestException as e: # <-- Bloque except del try principal
+        logging.error(f"Error de red al intentar obtener el enlace de confirmación de {url_boton_rojo}: {e}")
+        return None
+    except Exception as e: # <-- Bloque except del try principal
+        logging.exception(f"Error inesperado al obtener el enlace de confirmación final: {e}")
+        return None
+
+def obtener_codigo_de_pagina(url_netflix):
+    """
+    Visita la URL de Netflix y extrae el código de acceso de la página resultante.
+    """
     try:
-        response = requests.get(url_boton_rojo, timeout=10)
-        response.raise_for_status()
-        soup = BeautifulSoup(response.text, 'html.parser')
-        link_tag = soup.find('a', href=lambda href: href and 'confirm-home-update' in href)
-        return link_tag['href'] if link_tag else None
+        logging.info(f"Visitando URL de Netflix para obtener código: {url_netflix}")
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        }
+        response = requests.get(url_netflix, headers=headers, allow_redirects=True, timeout=30) 
+        response.raise_for_status() 
+
+        html_pagina_codigo = response.text
+        logging.info("Página de Netflix para código obtenida. Buscando el código...")
+        
+        match = re.search(r'<div[^>]*class=["\']challenge-code["\'][^>]*>(\d{4})<\/div>', html_pagina_codigo) 
+
+        if match:
+            codigo = match.group(1)
+            logging.info(f"Código encontrado: {codigo}")
+            return codigo
+            
+        logging.warning("No se encontró el patrón de código en la página de Netflix con la regex actual.")
+        return None
+
+    except requests.exceptions.Timeout:
+        logging.error(f"Tiempo de espera agotado al visitar {url_netflix}")
+        return None
     except requests.exceptions.RequestException as e:
-        logging.error(f"Error al acceder a la página de Netflix para obtener el enlace de confirmación: {e}")
+        logging.error(f"Error de red al intentar obtener el código de Netflix de {url_netflix}: {e}")
+        return None
     except Exception as e:
-        logging.error(f"Error inesperado al procesar la página de Netflix: {e}")
-    return None
+        logging.exception(f"Error inesperado al obtener el código de la página: {e}")
+        return None
 
-def navegar_y_extraer_universal():
-    """Busca el correo de Universal+ y extrae el código de activación."""
-    asunto_universal = "Código de activación Universal+"
-    logging.info(f"Buscando el correo de Universal+ con el asunto: '{asunto_universal}'")
-    try:
-        with MailBox('imap.gmail.com').login(IMAP_USER, IMAP_PASS, 'INBOX') as mailbox:
-            for msg in mailbox.fetch(AND(subject=asunto_universal), reverse=True, limit=1):
-                soup = BeautifulSoup(msg.html, 'html.parser')
-                code_div = soup.find('div', style=lambda value: value and 'font-size: 32px' in value and 'font-weight: 700' in value)
-                if code_div:
-                    codigo = code_div.text.strip()
-                    if re.fullmatch(r'[A-Z0-9]{6,7}', codigo):
-                        return codigo, None
-                    else:
-                        return None, "❌ Se encontró un texto en la etiqueta correcta, pero no coincide con el formato de código."
-                else:
-                    return None, "❌ No se pudo encontrar el código de activación. El formato del correo puede haber cambiado."
-        return None, f"❌ No se encontró ningún correo con el asunto: '{asunto_universal}'"
-    except Exception as e:
-        logging.error(f"Error al conectar o buscar el correo de Universal+: {e}")
-        return None, f"❌ Error en la conexión o búsqueda de correo: {str(e)}"
+# La función confirmar_hogar_netflix original se elimina porque la acción es asistida manualmente.
+# Si el usuario quiere el enlace para el clic final, la nueva función `obtener_enlace_confirmacion_final_hogar` se encargará de eso.
 
-# Funciones de Amazon Prime Video
-def buscar_ultimo_correo_prime(asunto_clave):
-    """
-    Busca el último correo de Amazon Prime Video con un asunto específico, manejando la codificación.
-    """
-    try:
-        imap = imaplib.IMAP4_SSL("imap.gmail.com")
-        imap.login(IMAP_USER, IMAP_PASS)
-        imap.select('inbox')
-        
-        # Corrección para el error de SEARCH command usando el comando X-GM-RAW de Gmail
-        status, messages = imap.search(None, 'X-GM-RAW', f'subject:"{asunto_clave}"')
-        
-        if not messages[0]:
-            return None, f"❌ No se encontró ningún correo con el asunto: '{asunto_clave}'"
-        
-        mail_id = messages[0].split()[-1]
-        status, data = imap.fetch(mail_id, '(RFC822)')
-        
-        raw_email = data[0][1]
-        email_message = email.message_from_bytes(raw_email)
-        
-        html_content = ""
-        for part in email_message.walk():
-            content_type = part.get_content_type()
-            if content_type == "text/html":
-                charset = part.get_content_charset() or 'utf-8'
-                html_content = part.get_payload(decode=True).decode(charset, errors='ignore')
-                break
-        
-        imap.close()
-        imap.logout()
-        
-        if html_content:
-            return html_content, None
-        else:
-            return None, "❌ No se pudo encontrar la parte HTML del correo."
-    except Exception as e:
-        logging.error(f"Error en la conexión o búsqueda de correo: {str(e)}")
-        return None, f"❌ Error en la conexión o búsqueda de correo: {str(e)}"
-    
-def extraer_codigo_de_pagina_prime(html_content):
-    """
-    Visita el enlace del correo de Amazon Prime Video y extrae el código final.
-    """
-    soup = BeautifulSoup(html_content, 'html.parser')
-    codigo_tag = soup.find('div', class_='code')
-    return codigo_tag.text.strip() if codigo_tag else None
-    
-# Funciones de Disney+
-def buscar_ultimo_correo_disney(asunto_clave):
-    """
-    Busca el último correo de Disney+ con un asunto específico.
-    """
-    try:
-        imap = imaplib.IMAP4_SSL("imap.gmail.com")
-        imap.login(IMAP_USER, IMAP_PASS)
-        imap.select('inbox')
-        
-        # Corrección para el error de SEARCH command usando el comando X-GM-RAW de Gmail
-        status, messages = imap.search(None, 'X-GM-RAW', f'subject:"{asunto_clave}"')
-        
-        if not messages[0]:
-            return None, f"❌ No se encontró ningún correo con el asunto: '{asunto_clave}'"
-        
-        mail_id = messages[0].split()[-1]
-        status, data = imap.fetch(mail_id, '(RFC822)')
-        
-        raw_email = data[0][1]
-        email_message = email.message_from_bytes(raw_email)
-        
-        html_content = ""
-        for part in email_message.walk():
-            content_type = part.get_content_type()
-            if content_type == "text/html":
-                charset = part.get_content_charset() or 'utf-8'
-                html_content = part.get_payload(decode=True).decode(charset, errors='ignore')
-                break
-        
-        imap.close()
-        imap.logout()
-        
-        if html_content:
-            return html_content, None
-        else:
-            return None, "❌ No se pudo encontrar la parte HTML del correo."
-    except Exception as e:
-        logging.error(f"Error en la conexión o búsqueda de correo: {str(e)}")
-        return None, f"❌ Error en la conexión o búsqueda de correo: {str(e)}"
-
-def extraer_codigo_de_correo_disney(html_content):
-    """
-    Extrae el código de 6 dígitos del correo de Disney+.
-    """
-    soup = BeautifulSoup(html_content, 'html.parser')
-    # El código de Disney+ está en una etiqueta <div> o <p> con un estilo específico
-    codigo_tag = soup.find('p', style=re.compile(r'font-size:\s*32px')) or soup.find('div', text=re.compile(r'^\d{6}$'))
-    if codigo_tag:
-        return codigo_tag.text.strip(), None
-    else:
-        return None, "❌ No se pudo encontrar el código de 6 dígitos en el correo."
-    
-app = Flask(__name__, template_folder='templates')
-
-# =====================
-# RUTAS WEB (FLASK)
-# =====================
-
-@app.route('/')
-def home():
-    return render_template('index.html')
-
-@app.route('/consultar_accion', methods=['POST'])
-def consultar_accion_web():
-    user_email_input = request.form.get('email', '').strip()
-    action = request.form.get('action')
-    platform = request.form.get('platform')
-
-    if not user_email_input or not platform:
-        return render_template('result.html', status="error", message="❌ Por favor, ingresa tu correo electrónico.")
-
-    if not es_correo_autorizado(user_email_input, platform):
-        return render_template('result.html', status="error", message=f"⚠️ Correo no autorizado para la plataforma {platform}.")
-
-    if platform == 'netflix':
-        if action == 'code':
-            asunto_clave = "Código de acceso temporal de Netflix"
-            html_correo, error = buscar_ultimo_correo(asunto_clave)
-            if error:
-                return render_template('result.html', status="error", message=error)
-            link = extraer_link_con_token_o_confirmacion(html_correo, es_hogar=False)
-            if link:
-                codigo_final = obtener_codigo_de_pagina(link)
-                if codigo_final:
-                    return render_template('result.html', status="success", message=f"✅ Tu código de Netflix es: <strong>{codigo_final}</strong>.<br>Úsalo en tu TV o dispositivo.")
-                else:
-                    return render_template('result.html', status="warning", message="No se pudo obtener el código activo para esta cuenta.")
-            else:
-                return render_template('result.html', status="warning", message="No se encontró ninguna solicitud pendiente para esta cuenta.")
-
-        elif action == 'hogar':
-            asunto_parte_clave = "Importante: Cómo actualizar tu Hogar con Netflix"
-            html_correo, error = buscar_ultimo_correo(asunto_parte_clave)
-            if error:
-                return render_template('result.html', status="error", message=error)
-            link = extraer_link_con_token_o_confirmacion(html_correo, es_hogar=True)
-            if link:
-                enlace_final_confirmacion = obtener_enlace_confirmacion_final_hogar(link)
-                if enlace_final_confirmacion:
-                    mensaje_web = f"✅ Solicitud de Hogar procesada. Por favor, **HAZ CLIC INMEDIATAMENTE** en este enlace para confirmar la actualización:<br><br><strong><a href='{enlace_final_confirmacion}' target='_blank'>{enlace_final_confirmacion}</a></strong><br><br>⚠️ Este enlace vence muy rápido. Si ya lo has usado o ha pasado mucho tiempo, es posible que debas solicitar una nueva actualización en tu TV."
-                    return render_template('result.html', status="success", message=mensaje_web)
-                else:
-                    return render_template('result.html', status="warning", message="❌ No se pudo obtener el enlace de confirmación final. Contacta al administrador si persiste.")
-            else:
-                return render_template('result.html', status="warning", message="No se encontró ninguna solicitud pendiente para esta cuenta.")
-    
-    elif platform == 'prime':
-        if action == 'code':
-            asunto_clave = "Código de verificación de Prime Video"
-            html_correo, error = buscar_ultimo_correo_prime(asunto_clave)
-            if error:
-                return render_template('result.html', status="error", message=error)
-            
-            codigo_final = extraer_codigo_de_pagina_prime(html_correo)
-            if codigo_final:
-                return render_template('result.html', status="success", message=f"✅ Tu código de Amazon Prime Video es: <strong>{codigo_final}</strong>.<br>Úsalo en tu TV o dispositivo.")
-            else:
-                return render_template('result.html', status="warning", message="No se pudo obtener el código activo para esta cuenta.")
-        else:
-            return render_template('result.html', status="error", message="❌ Acción no válida. Por favor, selecciona una de las opciones.")
-
-    elif platform == 'disney':
-        if action == 'code':
-            asunto_clave = "Tu código de acceso único para Disney+"
-            html_correo, error = buscar_ultimo_correo_disney(asunto_clave)
-            if error:
-                return render_template('result.html', status="error", message="❌ Por razones de seguridad, la función de obtención de código de acceso genérico de Disney+ ha sido deshabilitada para evitar robos de cuenta. Por favor, usa la función de 'Actualizar Hogar' si es necesario.")
-
-            codigo, error_extraccion = extraer_codigo_de_correo_disney(html_correo)
-            if error_extraccion:
-                return render_template('result.html', status="warning", message=error_extraccion)
-            else:
-                return render_template('result.html', status="success", message=f"✅ Tu código de Disney+ es: <strong>{codigo}</strong>.<br>Úsalo en tu TV o dispositivo.")
-
-        elif action == 'hogar':
-            asunto_parte_clave = "¿Vas a actualizar tu Hogar de Disney+?"
-            html_correo, error = buscar_ultimo_correo_disney(asunto_parte_clave)
-            if error:
-                return render_template('result.html', status="error", message="❌ No se encontró una solicitud pendiente para esta cuenta.")
-            
-            codigo, error_extraccion = extraer_codigo_de_correo_disney(html_correo)
-            if error_extraccion:
-                return render_template('result.html', status="warning", message=error_extraccion)
-            else:
-                return render_template('result.html', status="success", message=f"✅ Tu código de Disney+ para actualizar el Hogar es: <strong>{codigo}</strong>.")
-
-    else:
-        return render_template('result.html', status="error", message="❌ Plataforma no válida. Por favor, selecciona una de las opciones.")
-
-# =====================
-# Inicio de la aplicación Flask
-# =====================
-
-def mantener_vivo_thread():
-    def run():
-        port = int(os.environ.get("PORT", 5000))
-        app.run(host="0.0.0.0", port=port, use_reloader=False)
-
-    thread = threading.Thread(target=run)
-    thread.start()
-
-if __name__ == "__main__":
-    mantener_vivo_thread()
+}
+Este es el funciones py actual
