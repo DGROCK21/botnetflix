@@ -81,8 +81,7 @@ def buscar_ultimo_correo(asunto_clave):
         imap.login(IMAP_USER, IMAP_PASS)
         imap.select('inbox')
         
-        # Corrección para el error de codificación
-        search_criteria = f'(SUBJECT "{asunto_clave}")'.encode('utf-8')
+        # Corrección para el error de SEARCH command usando el comando X-GM-RAW de Gmail
         status, messages = imap.search(None, 'X-GM-RAW', f'subject:"{asunto_clave}"'.encode('utf-8'))
         
         if not messages[0]:
@@ -182,7 +181,7 @@ def buscar_ultimo_correo_prime(asunto_clave):
         imap.login(IMAP_USER, IMAP_PASS)
         imap.select('inbox')
         
-        # Corrección para el error de codificación
+        # Corrección para el error de SEARCH command usando el comando X-GM-RAW de Gmail
         status, messages = imap.search(None, 'X-GM-RAW', f'subject:"{asunto_clave}"'.encode('utf-8'))
         
         if not messages[0]:
@@ -211,7 +210,7 @@ def buscar_ultimo_correo_prime(asunto_clave):
             return None, "❌ No se pudo encontrar la parte HTML del correo."
     except Exception as e:
         logging.error(f"Error en la conexión o búsqueda de correo: {str(e)}")
-        return None, f"❌ Error en la conexión o búsqueda de correo: {str(e)}")
+        return None, f"❌ Error en la conexión o búsqueda de correo: {str(e)}"
     
 def extraer_codigo_de_pagina_prime(html_content):
     """
@@ -231,7 +230,7 @@ def buscar_ultimo_correo_disney(asunto_clave):
         imap.login(IMAP_USER, IMAP_PASS)
         imap.select('inbox')
         
-        # Corrección para el error de codificación
+        # Corrección para el error de SEARCH command usando el comando X-GM-RAW de Gmail
         status, messages = imap.search(None, 'X-GM-RAW', f'subject:"{asunto_clave}"'.encode('utf-8'))
         
         if not messages[0]:
