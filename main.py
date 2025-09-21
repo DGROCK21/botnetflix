@@ -272,3 +272,123 @@ def obtener_codigo_de_pagina(url_netflix):
 
 # La función confirmar_hogar_netflix original se elimina porque la acción es asistida manualmente.
 # Si el usuario quiere el enlace para el clic final, la nueva función `obtener_enlace_confirmacion_final_hogar` se encargará de eso.
+
+# =====================
+# Lógica del bot de Telegram y del servidor web
+# =====================
+
+# Handler para el comando /start
+@bot.message_handler(commands=['start'])
+def send_welcome(message):
+    bot.reply_to(message, "¡Hola! Soy tu bot de Netflix. Envía el comando /obtener_codigo <tu_correo> para recibir el código de acceso, o /confirmar_hogar <tu_correo> para confirmar el hogar.")
+
+# Handler para el comando /obtener_codigo
+@bot.message_handler(commands=['obtener_codigo'])
+def handle_obtener_codigo(message):
+    try:
+        if len(message.text.split()) < 2:
+            bot.reply_to(message, "Por favor, usa el formato: /obtener_codigo <tu_correo>")
+            return
+
+        correo_usuario = message.text.split()[1]
+        
+        if not es_correo_autorizado(correo_usuario):
+            bot.reply_to(message, "❌ El correo que ingresaste no está autorizado para usar este bot.")
+            return
+
+        logging.info(f"Recibida solicitud de código para el correo: {correo_usuario}")
+
+        # Aquí asumes que tu script ya tiene acceso a las credenciales IMAP
+        # Y busca el correo de "Netflix" con asunto "Código de acceso temporal"
+        html_correo, error_msg = buscar_ultimo_correo(IMAP_USER, IMAP_PASS, "Código de acceso temporal")
+        
+        if error_msg:
+            bot.reply_to(message, error_msg)
+            return
+        
+        if html_correo:
+            link = extraer_link_con_token_o_confirmacion(html_correo, es_hogar=False)
+            if link:
+                codigo = obtener_codigo_de_pagina(link)
+                if codigo:
+                    bot.reply_to(message, f"✅ Tu código de acceso es: {codigo}")
+                else:
+                    bot.reply_to(message, "⚠️ El link del correo no contiene un código de acceso válido.")
+            else:
+                bot.reply_to(message, "⚠️ No se encontró un link con un token válido en el correo.")
+        else:
+            bot.reply_to(message, "❌ No se encontró un correo de Netflix con un código de acceso temporal. Asegúrate de haberlo solicitado y que el correo haya llegado.")
+
+    except Exception as e:
+        logging.exception("Error en el handler de /obtener_codigo")
+        bot.reply_to(message, f"❌ Ocurrió un error inesperado: {str(e)}")
+
+
+# Handler para el comando /confirmar_hogar
+@bot.message_handler(commands=['confirmar_hogar'])
+def handle_confirmar_hogar(message):
+    try:
+        if len(message.text.split()) < 2:
+            bot.reply_to(message, "Por favor, usa el formato: /confirmar_hogar <tu_correo>")
+            return
+
+        correo_usuario = message.text.split()[1]
+        
+        if not es_correo_autorizado(correo_usuario):
+            bot.reply_to(message, "❌ El correo que ingresaste no está autorizado para usar este bot.")
+            return
+
+        logging.info(f"Recibida solicitud para confirmar hogar para el correo: {correo_usuario}")
+        
+        # Busca el correo con asunto "Actualiza tu hogar con un solo clic"
+        html_correo, error_msg = buscar_ultimo_correo(IMAP_USER, IMAP_PASS, "Actualiza tu hogar con un solo clic")
+
+        if error_msg:
+            bot.reply_to(message, error_msg)
+            return
+        
+        if html_correo:
+            link_boton_rojo = extraer_link_con_token_o_confirmacion(html_correo, es_hogar=True)
+            if link_boton_rojo:
+                # Obtenemos la URL final de la página de confirmación
+                link_final_confirmacion = obtener_enlace_confirmacion_final_hogar(link_boton_rojo)
+                if link_final_confirmacion:
+                    bot.reply_to(message, f"✅ Por favor, haz clic en el siguiente enlace para confirmar la actualización del hogar: {link_final_confirmacion}")
+                    # Enviar una notificación al administrador
+                    if ADMIN_TELEGRAM_ID:
+                        bot.send_message(ADMIN_TELEGRAM_ID, f"El usuario ha solicitado confirmar el hogar y se le ha enviado el enlace. ID: {message.chat.id}")
+                else:
+                    bot.reply_to(message, "⚠️ No se pudo obtener el enlace de confirmación final. El correo puede no ser el esperado.")
+            else:
+                bot.reply_to(message, "⚠️ No se encontró el botón de confirmación en el correo.")
+        else:
+            bot.reply_to(message, "❌ No se encontró un correo de Netflix para actualizar el hogar.")
+            
+    except Exception as e:
+        logging.exception("Error en el handler de /confirmar_hogar")
+        bot.reply_to(message, f"❌ Ocurrió un error inesperado: {str(e)}")
+
+# Sección para manejar el Webhook en Render
+# Esto es CRÍTICO para que el bot no se cierre.
+if BOT_TOKEN:
+    # Esta es la ruta que Telegram usará para enviar actualizaciones a tu bot
+    @app.route('/' + BOT_TOKEN, methods=['POST'])
+    def get_message():
+        # Decodifica el JSON que viene del webhook
+        json_string = request.get_data().decode('utf-8')
+        update = types.Update.de_json(json_string)
+        # Procesa la actualización
+        bot.process_new_updates([update])
+        return "!", 200 # Responde a Telegram para confirmar que el mensaje fue recibido
+    
+    # Esta es la ruta para la página de inicio, puedes mostrar algo si quieres
+    @app.route('/')
+    def index():
+        return "Bot de Telegram funcionando correctamente.", 200
+
+# Esta parte del código hace que el servidor Flask se ejecute
+# y mantenga la aplicación en línea
+if __name__ == '__main__':
+    # La variable de entorno PORT es necesaria para Render
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port)
