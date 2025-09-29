@@ -1,309 +1,311 @@
 import os
 import json
 import logging
-from flask import Flask, request, render_template_string
-import imaplib
-import email
-from email.header import decode_header
-import re
-import requests
-from bs4 import BeautifulSoup
-import telebot
-from telebot import types 
+from flask import Flask, render_template, request, redirect, url_for
+from keep_alive import mantener_vivo
+# Importar funciones necesarias desde funciones.py
+# Asegúrate de que estas funciones solo usen los parámetros que les pasas
+from funciones import buscar_ultimo_correo, extraer_link_con_token_o_confirmacion, obtener_codigo_de_pagina, obtener_enlace_confirmacion_final_hogar 
+import telebot # Importamos telebot para la funcionalidad del bot
 
-# Configurar logging
+# Configurar logging para ver mensajes en los logs de Render
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# Cargar cuentas (para validación)
+# Cargar cuentas desde archivo (solo para validación de correos de usuario autorizados)
+# Este archivo debe estar en la misma carpeta que main.py
 try:
     with open("cuentas.json", "r") as file:
         cuentas = json.load(file)
-    logging.info("Cuentas cargadas exitosamente.")
-except Exception:
-    logging.warning("No se pudo cargar cuentas.json.")
+    logging.info("Cuentas cargadas exitosamente desde cuentas.json")
+except FileNotFoundError:
+    logging.error("❌ Error: cuentas.json no encontrado. La validación de correo no funcionará.")
+    cuentas = {} # Inicializa como diccionario vacío para evitar errores posteriores
+except json.JSONDecodeError:
+    logging.error("❌ Error: Formato JSON inválido en cuentas.json. La validación de correo podría ser inconsistente.")
     cuentas = {}
 
-# Obtener credenciales
+# Obtener credenciales IMAP y el token del bot desde las variables de entorno de Render
+BOT_TOKEN = os.getenv("BOT_TOKEN")
 IMAP_USER = os.getenv("E-MAIL_USER")
 IMAP_PASS = os.getenv("EMAIL_PASS")
-BOT_TOKEN = os.getenv("BOT_TOKEN") 
+ADMIN_TELEGRAM_ID = os.getenv("ADMIN_TELEGRAM_ID") # Asegúrate de definir esta variable en Render con tu ID de Telegram
+
+if not BOT_TOKEN:
+    logging.error("❌ BOT_TOKEN no está definido en las variables de entorno de Render. La funcionalidad de Telegram NO ESTARÁ DISPONIBLE.")
+if not IMAP_USER or not IMAP_PASS:
+    logging.error("❌ E-MAIL_USER o EMAIL_PASS no están definidos en las variables de entorno de Render. La funcionalidad de lectura de correos NO ESTARÁ DISPONIBLE.")
+    # Si estas no están, el bot no podrá conectarse a Gmail, lo que es crítico.
+if not ADMIN_TELEGRAM_ID:
+    logging.warning("⚠️ ADMIN_TELEGRAM_ID no está definido. No se enviarán notificaciones al administrador.")
+
 
 # Inicializar Flask
 app = Flask(__name__)
 
-# Inicializar Telebot (Respaldo)
+# Inicializar Telebot solo si el token está presente
 if BOT_TOKEN:
     bot = telebot.TeleBot(BOT_TOKEN)
-    logging.info("Bot de Telegram (Respaldo) inicializado.")
+    logging.info("Bot de Telegram inicializado.")
 else:
-    bot = None
+    bot = None # Establecemos bot a None para evitar errores si no hay token
 
-# =================================================================
-# LÓGICA DE EXTRACCIÓN (NETFLIX) - NO SE MODIFICA
-# =================================================================
+# =====================
+# Funciones auxiliares para la web y el bot de Telegram
+# =====================
 
-def buscar_ultimo_correo(usuario_imap, contrasena_imap, asunto_parte_clave, num_mensajes_revisar=50):
-    """ Busca el último correo que CONTIENE una parte del asunto clave. Retorna HTML, mensaje, status_clase """
-    if not usuario_imap or not contrasena_imap:
-        return None, "❌ Error: Credenciales IMAP no configuradas en Render.", "error"
-    
-    try:
-        mail = imaplib.IMAP4_SSL("imap.gmail.com")
-        mail.login(usuario_imap, contrasena_imap) 
-        mail.select("inbox")
-        _, mensajes = mail.search(None, "ALL") 
-        mensajes = mensajes[0].split()
-
-        mensajes_reversados = reversed(mensajes[-min(num_mensajes_revisar, len(mensajes)):])
+def es_correo_autorizado(correo_usuario):
+    """
+    Verifica si el correo de usuario (ej. @dgplayk.com) pertenece a una de las cuentas autorizadas en cuentas.json.
+    """
+    if not cuentas:
+        logging.warning("No hay cuentas cargadas para validación. Todos los correos serán rechazados por el bot.")
+        return False
         
-        for num in mensajes_reversados:
-            _, datos = mail.fetch(num, "(RFC822)")
-            mensaje = email.message_from_bytes(datos[0][1])
+    for user_id, correos_list in cuentas.items():
+        for entrada in correos_list:
+            # La entrada puede ser "correo@dominio.com" o "correo@dominio.com|user_imap|pass_imap"
+            # Nos interesa solo la primera parte para comparar con el input del usuario
+            correo_en_lista = entrada.split("|")[0].lower()
+            if correo_en_lista == correo_usuario.lower():
+                return True
+    return False
+
+# =====================
+# Rutas de la aplicación web (Flask)
+# =====================
+
+@app.route('/')
+def home():
+    """Renderiza la página principal con el formulario."""
+    return render_template('index.html')
+
+@app.route('/consultar_accion', methods=['POST'])
+def consultar_accion_web():
+    user_email_input = request.form.get('email', '').strip()
+    action = request.form.get('action') # Esto viene del atributo 'name' y 'value' de los botones submit
+
+    if not user_email_input:
+        logging.warning("WEB: Solicitud sin correo electrónico.")
+        return render_template('result.html', status="error", message="❌ Por favor, ingresa tu correo electrónico.")
+
+    if not es_correo_autorizado(user_email_input):
+        logging.warning(f"WEB: Intento de correo no autorizado: {user_email_input}")
+        return render_template('result.html', status="error", message="⚠️ Correo no autorizado. Por favor, usa un correo registrado en la cuenta @dgplayk.com.")
+
+    if not IMAP_USER or not IMAP_PASS:
+        logging.error("WEB: E-MAIL_USER o EMAIL_PASS no definidos. La funcionalidad de lectura de correos no es válida.")
+        return render_template('result.html', status="error", message="❌ Error interno del servidor: La configuración de lectura de correos no es válida. Contacta al administrador del servicio.")
+
+    # Lógica para obtener el código o confirmar el hogar
+    if action == 'code':
+        asunto_clave = "Código de acceso temporal de Netflix" # Asunto para códigos
+        logging.info(f"WEB: Solicitud de código para {user_email_input}. Buscando en {IMAP_USER} correo con asunto: '{asunto_clave}'")
+        
+        html_correo, error = buscar_ultimo_correo(IMAP_USER, IMAP_PASS, asunto_clave) 
+        
+        if error:
+            logging.error(f"WEB: Error al buscar correo para código: {error}")
+            return render_template('result.html', status="error", message=error)
+
+        link = extraer_link_con_token_o_confirmacion(html_correo, es_hogar=False) 
+        if link:
+            codigo_final = obtener_codigo_de_pagina(link)
+            if codigo_final:
+                logging.info(f"WEB: Código obtenido: {codigo_final}")
+                return render_template('result.html', status="success", message=f"✅ Tu código de Netflix es: <strong>{codigo_final}</strong>.<br>Úsalo en tu TV o dispositivo.")
+            else:
+                logging.warning("WEB: Se encontró el enlace de código, pero no se pudo extraer el código de la página de Netflix.")
+                return render_template('result.html', status="warning", message="No se pudo obtener el código activo para esta cuenta.")
+        else:
+            logging.warning("WEB: No se encontró enlace de código de Netflix en el correo principal.")
+            return render_template('result.html', status="warning", message="No se encontró ninguna solicitud pendiente para esta cuenta.")
+
+    elif action == 'hogar':
+        # ASUNTO FLEXIBLE Y ACTUALIZADO: Buscamos una parte constante del asunto para "Actualizar Hogar"
+        asunto_parte_clave = "Importante: Cómo actualizar tu Hogar con Netflix" 
+        logging.info(f"WEB: Solicitud de hogar para {user_email_input}. Buscando en {IMAP_USER} correo que contenga: '{asunto_parte_clave}'")
+        
+        html_correo, error = buscar_ultimo_correo(IMAP_USER, IMAP_PASS, asunto_parte_clave) 
+        
+        if error:
+            logging.error(f"WEB: Error al buscar correo para hogar: {error}")
+            return render_template('result.html', status="error", message=error)
+
+        # Primero extraemos el enlace del botón rojo "Sí, la envié yo" del correo inicial
+        link_boton_rojo = extraer_link_con_token_o_confirmacion(html_correo, es_hogar=True)
+        
+        if link_boton_rojo:
+            logging.info(f"WEB: Enlace del botón rojo 'Sí, la envié yo' encontrado: {link_boton_rojo}. Intentando obtener enlace final de confirmación...")
             
-            asunto_parts = decode_header(mensaje["Subject"])
-            asunto = "".join([
-                part.decode(encoding or "utf-8", errors='ignore') if isinstance(part, bytes) else part
-                for part, encoding in asunto_parts
-            ])
+            # NUEVA LLAMADA: Visitamos el enlace del botón rojo y extraemos el enlace del botón negro "Confirmar actualización"
+            enlace_final_confirmacion = obtener_enlace_confirmacion_final_hogar(link_boton_rojo)
 
-            if asunto_parte_clave.lower() in asunto.lower():
-                html_content = None
-                if mensaje.is_multipart():
-                    for parte in mensaje.walk():
-                        ctype = parte.get_content_type()
-                        cdisp = str(parte.get('Content-Disposition')) 
-                        if ctype == 'text/html' and 'attachment' not in cdisp:
-                            html_content = parte.get_payload(decode=True).decode(parte.get_content_charset() or "utf-8", errors='ignore')
-                            break
+            if enlace_final_confirmacion:
+                # *** CAMBIO CLAVE AQUÍ: MUESTRA EL ENLACE DIRECTAMENTE EN LA WEB ***
+                mensaje_web = f"✅ Solicitud de Hogar procesada. Por favor, **HAZ CLIC INMEDIATAMENTE** en este enlace para confirmar la actualización:<br><br><strong><a href='{enlace_final_confirmacion}' target='_blank'>{enlace_final_confirmacion}</a></strong><br><br>⚠️ Este enlace vence muy rápido. Si ya lo has usado o ha pasado mucho tiempo, es posible que debas solicitar una nueva actualización en tu TV."
                 
-                if html_content:
-                    mail.logout()
-                    return html_content, None, None
-        
-        mail.logout()
-        return None, f"❌ No se encontró un correo de Netflix con la clave: {asunto_parte_clave}", "warning"
+                # Opcional: También enviamos a Telegram como backup o notificación extra
+                if bot and ADMIN_TELEGRAM_ID:
+                    mensaje_telegram_admin = f"🚨 NOTIFICACIÓN DE HOGAR NETFLIX (WEB) 🚨\n\nEl usuario **{user_email_input}** ha solicitado actualizar el Hogar Netflix.\n\nEl enlace también se mostró en la web. Si el usuario no puede acceder, **HAZ CLIC INMEDIATAMENTE AQUÍ**:\n{enlace_final_confirmacion}\n\n⚠️ Este enlace vence muy rápido."
+                    try:
+                        bot.send_message(ADMIN_TELEGRAM_ID, mensaje_telegram_admin, parse_mode='Markdown')
+                        logging.info(f"WEB: Enlace de hogar final enviado al admin por Telegram (adicional) para {user_email_input}.")
+                    except Exception as e:
+                        logging.error(f"WEB: Error al enviar notificación ADICIONAL por Telegram: {e}")
+                
+                return render_template('result.html', status="success", message=mensaje_web)
 
-    except imaplib.IMAP4.error as e:
-        error_msg = str(e)
-        return None, f"⚠️ Error de autenticación: {error_msg}. Verifica la Contraseña de Aplicación.", "error"
-    except Exception as e:
-        return None, f"⚠️ Error inesperado: {str(e)}", "error"
+            else:
+                logging.warning("WEB: No se pudo extraer el enlace de confirmación final del botón negro.")
+                return render_template('result.html', status="warning", message="❌ No se pudo obtener el enlace de confirmación final. El formato de la página de Netflix puede haber cambiado. Contacta al administrador si persiste.")
+        else:
+            logging.warning("WEB: No se encontró el enlace del botón 'Sí, la envié yo' en el correo principal.")
+            return render_template('result.html', status="warning", message="No se encontró ninguna solicitud pendiente para esta cuenta.")
+    else:
+        logging.warning(f"WEB: Acción no válida recibida: {action}")
+        return render_template('result.html', status="error", message="❌ Acción no válida. Por favor, selecciona 'Consultar Código' o 'Actualizar Hogar'.")
 
-def extraer_link_con_token_o_confirmacion(html_content, es_hogar=False):
-    """ Extrae el enlace relevante del HTML del correo. """
-    soup = BeautifulSoup(html_content, 'html.parser')
-    if es_hogar:
-        boton_rojo = soup.find('a', string=re.compile(r'Sí, la envié yo', re.IGNORECASE))
-        if boton_rojo and 'href' in boton_rojo.attrs:
-            return boton_rojo['href']
-    
-    for a_tag in soup.find_all('a', href=True):
-        if "nftoken=" in a_tag['href']:
-            return a_tag['href']
-    return None
-
-def obtener_codigo_de_pagina(url_netflix):
-    """ Visita la URL de Netflix y extrae el código de 4 dígitos. """
-    try:
-        headers = {'User-Agent': 'Mozilla/5.0'}
-        response = requests.get(url_netflix, headers=headers, timeout=30) 
-        response.raise_for_status() 
-        match = re.search(r'<div[^>]*class=["\']challenge-code["\'][^>]*>(\d{4})<\/div>', response.text) 
-        if match:
-            return match.group(1)
-        return None
-    except requests.exceptions.RequestException:
-        return None
-
-# =================================================================
-# HANDLERS DEL BOT DE TELEGRAM (Respaldo) - Mismos comandos /code y /hogar
-# =================================================================
+# =====================
+# Comandos del bot de Telegram (Webhook)
+# =====================
 
 if bot:
-    @bot.message_handler(commands=['start', 'help'])
-    def send_welcome(message):
-        bot.reply_to(message, "¡Hola! Soy el bot de respaldo. Usa /code o /hogar.")
-
-    @bot.message_handler(commands=['code'])
-    def handle_obtener_codigo(message):
-        html_correo, error_msg, error_status = buscar_ultimo_correo(IMAP_USER, IMAP_PASS, "Código de acceso temporal")
-        if error_msg:
-            bot.reply_to(message, error_msg)
-            return
-        # ... (resto de la lógica de Telegram)
-        link = extraer_link_con_token_o_confirmacion(html_correo, es_hogar=False)
-        if link:
-            codigo = obtener_codigo_de_pagina(link)
-            if codigo:
-                bot.reply_to(message, f"✅ CÓDIGO TEMPORAL: {codigo}\nLink: {link}")
-            else:
-                bot.reply_to(message, "⚠️ No se pudo extraer el código de la página de Netflix.")
+    @app.route(f"/{BOT_TOKEN}", methods=["POST"])
+    def recibir_update():
+        """
+        Ruta para recibir actualizaciones del webhook de Telegram.
+        """
+        if request.headers.get('content-type') == 'application/json':
+            json_str = request.get_data().decode("utf-8")
+            update = telebot.types.Update.de_json(json_str)
+            bot.process_new_updates([update])
+            return "", 200 # Respuesta exitosa para Telegram
         else:
-            bot.reply_to(message, "⚠️ No se encontró un link con token válido en el correo.")
+            logging.warning("TELEGRAM: Encabezado Content-Type incorrecto en la solicitud del webhook.")
+            return "Bad Request", 400
 
-    @bot.message_handler(commands=['hogar'])
-    def handle_confirmar_hogar(message):
-        html_correo, error_msg, error_status = buscar_ultimo_correo(IMAP_USER, IMAP_PASS, "Actualiza tu hogar con un solo clic")
-
-        if error_msg:
-            bot.reply_to(message, error_msg)
-            return
-        
-        link_boton_rojo = extraer_link_con_token_o_confirmacion(html_correo, es_hogar=True)
-        if link_boton_rojo:
-            bot.reply_to(message, f"✅ ENLACE DE CONFIRMACIÓN: Por favor, haz clic aquí:\n{link_boton_rojo}")
-        else:
-            bot.reply_to(message, "❌ No se encontró un correo de Netflix para actualizar el hogar.")
-
-# =================================================================
-# RUTAS WEB (INTERFAZ CON TUS MÓDULOS)
-# =================================================================
-
-@app.route('/', methods=['GET', 'POST'])
-def index():
-    resultado = ""
-    status_clase = ""
-    
-    if request.method == 'POST':
-        accion = request.form.get('accion') # netflix_code, netflix_hogar, prime_code, etc.
-        
+    @bot.message_handler(commands=["code"])
+    def manejar_code_telegram(message):
+        """
+        Maneja el comando /code para obtener un código de Netflix vía Telegram.
+        """
         if not IMAP_USER or not IMAP_PASS:
-            resultado = "❌ ERROR: Las credenciales de correo (E-MAIL_USER/EMAIL_PASS) no están configuradas en Render."
-            status_clase = "error"
+            bot.reply_to(message, "❌ Error: La lectura de correos no está configurada en el servidor. Contacta al administrador.")
+            return
+
+        bot.reply_to(message, "TELEGRAM: Buscando correo de código, por favor espera unos momentos...")
+        partes = message.text.split()
+        if len(partes) != 2:
+            bot.reply_to(message, "❌ Uso: /code tu_correo_netflix@dgplayk.com")
+            return
+
+        correo_busqueda = partes[1].lower()
+        if not es_correo_autorizado(correo_busqueda):
+             bot.reply_to(message, "⚠️ Correo no autorizado para esta acción.")
+             return
         
-        elif 'netflix' in accion:
-            # Lógica de NETFLIX
-            asunto_clave = "Código de acceso temporal" if 'code' in accion else "Actualiza tu hogar con un solo clic"
-            
-            html_correo, error_msg, error_status = buscar_ultimo_correo(IMAP_USER, IMAP_PASS, asunto_clave)
-            
-            if error_msg:
-                resultado, status_clase = error_msg, error_status
+        asunto_clave = "Código de acceso temporal de Netflix" # Asunto para códigos
+        html_correo, error = buscar_ultimo_correo(IMAP_USER, IMAP_PASS, asunto_clave) 
+
+        if error:
+            bot.reply_to(message, error)
+            return
+
+        link = extraer_link_con_token_o_confirmacion(html_correo, es_hogar=False) 
+        if link:
+            codigo_final = obtener_codigo_de_pagina(link)
+            if codigo_final:
+                bot.reply_to(message, f"✅ TELEGRAM: Tu código de Netflix es: `{codigo_final}`")
             else:
-                if 'code' in accion:
-                    link = extraer_link_con_token_o_confirmacion(html_correo, es_hogar=False)
-                    codigo = obtener_codigo_de_pagina(link) if link else None
-                    resultado = f"✅ **CÓDIGO TEMPORAL:** <code>{codigo}</code><br><strong>Link:</strong> <a href='{link}' target='_blank' class='text-red-400 underline'>Ver Enlace</a>" if codigo else "⚠️ No se pudo extraer el código/enlace de la página."
-                    status_clase = 'success' if codigo else 'warning'
-                else: # Confirmar Hogar
-                    link_hogar = extraer_link_con_token_o_confirmacion(html_correo, es_hogar=True)
-                    resultado = f"✅ **ENLACE HOGAR:** Por favor, haz clic aquí: <a href='{link_hogar}' target='_blank' class='text-red-400 underline'>Confirmar Actualización</a>" if link_hogar else "⚠️ No se encontró el enlace de 'Sí, la envié yo'."
-                    status_clase = 'success' if link_hogar else 'warning'
-        
+                bot.reply_to(message, "❌ TELEGRAM: No se pudo obtener el código activo para esta cuenta.")
         else:
-            # Lógica de Disney y Prime (Deshabilitado)
-            plataforma_nombre = accion.split('_')[0].capitalize()
-            resultado = f"Módulo de {plataforma_nombre} no implementado aún. Trabajando en ello."
-            status_clase = "warning"
+            bot.reply_to(message, "❌ TELEGRAM: No se encontró ninguna solicitud pendiente para esta cuenta.")
 
-    # Renderizamos la plantilla HTML
-    return render_template_string(HTML_TEMPLATE_MODULOS, resultado=resultado, status_clase=status_clase, imap_user=IMAP_USER)
+    @bot.message_handler(commands=["hogar"])
+    def manejar_hogar_telegram(message):
+        """
+        Maneja el comando /hogar para notificar al administrador con el enlace de confirmación.
+        """
+        if not IMAP_USER or not IMAP_PASS:
+            bot.reply_to(message, "❌ Error: La lectura de correos no está configurada en el servidor. Contacta al administrador.")
+            return
 
-# =================================================================
-# PLANTILLA HTML DE LOS MÓDULOS (TU DISEÑO)
-# =================================================================
+        bot.reply_to(message, "TELEGRAM: Buscando correo de hogar, por favor espera unos momentos...")
+        partes = message.text.split()
+        if len(partes) != 2:
+            bot.reply_to(message, "❌ Uso: /hogar tu_correo_netflix@dgplayk.com")
+            return
 
-HTML_TEMPLATE_MODULOS = """
-<!DOCTYPE html>
-<html lang="es">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DGPPLAY ENTERTAINMENT</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;700;900&display=swap');
-        body { font-family: 'Roboto', sans-serif; background-color: #111111; }
-        .card { transition: transform 0.3s ease, box-shadow 0.3s ease; }
-        .card:hover { transform: translateY(-5px); box-shadow: 0 10px 20px rgba(0, 0, 0, 0.4); }
-        .btn-netflix { background-color: #E50914; border: 1px solid #E50914; }
-        .btn-netflix:hover { background-color: #F40A15; }
-        .btn-prime { background-color: #00A8E1; border: 1px solid #00A8E1; }
-        .btn-prime:hover { background-color: #00B9F2; }
-        .btn-disney { background-color: #01509D; border: 1px solid #01509D; }
-        .btn-disney:hover { background-color: #0261AE; }
-    </style>
-</head>
-<body class="p-6">
-    <div class="max-w-6xl mx-auto">
-        <!-- Título principal y Área de Resultados -->
-        <header class="text-center mb-10">
-            <h1 class="text-4xl font-black text-green-500 mb-2 tracking-wider">DGPPLAY ENTERTAINMENT</h1>
-            <h2 class="text-xl text-gray-300">Tu Centro de Acceso Rápido a Códigos de Streaming</h2>
-        </header>
+        correo_busqueda = partes[1].lower()
+        if not es_correo_autorizado(correo_busqueda):
+            bot.reply_to(message, "⚠️ Correo no autorizado para esta acción.")
+            return
 
-        <!-- Área de Resultados Flotante -->
-        {% if resultado %}
-        <div class="fixed top-0 left-0 right-0 z-50 p-4 flex justify-center">
-            <div class="w-full max-w-xl p-4 rounded-lg shadow-2xl text-white text-center font-medium
-                {% if status_clase == 'success' %}
-                    bg-green-700 border border-green-400
-                {% elif status_clase == 'error' %}
-                    bg-red-700 border border-red-400
-                {% else %}
-                    bg-yellow-700 border border-yellow-400
-                {% endif %}">
-                {{ resultado | safe }}
-            </div>
-        </div>
-        {% endif %}
+        # ASUNTO FLEXIBLE Y ACTUALIZADO: Buscamos una parte constante del asunto para "Actualizar Hogar"
+        asunto_parte_clave = "Importante: Cómo actualizar tu Hogar con Netflix" 
+        html_correo, error = buscar_ultimo_correo(IMAP_USER, IMAP_PASS, asunto_parte_clave) 
 
-        <!-- Contenedor de Módulos (3 Columnas) -->
-        <main class="grid grid-cols-1 md:grid-cols-3 gap-8">
+        if error:
+            bot.reply_to(message, error)
+            return
+
+        link_boton_rojo = extraer_link_con_token_o_confirmacion(html_correo, es_hogar=True)
+        
+        if link_boton_rojo:
+            logging.info(f"TELEGRAM: Enlace del botón rojo 'Sí, la envié yo' encontrado: {link_boton_rojo}. Intentando obtener enlace final de confirmación...")
             
-            <!-- MÓDULO 1: NETFLIX -->
-            <div class="card bg-gray-900 p-6 rounded-xl shadow-xl border border-red-700">
-                <h3 class="text-3xl font-extrabold text-red-600 mb-4 text-center tracking-widest">NETFLIX</h3>
-                <p class="text-gray-400 mb-6 text-center text-sm">Haz clic para obtener código o actualizar hogar. Usa el correo que reenvía a {{ imap_user }}.</p>
-                <form method="POST" class="space-y-4">
-                    <!-- Campo de Correo del Cliente ELIMINADO para usar el IMAP_USER global -->
-                    <button type="submit" name="accion" value="netflix_code" class="btn-netflix w-full py-3 font-bold rounded-lg shadow-md hover:shadow-lg transition duration-200">
-                        Consultar Código
-                    </button>
-                    <button type="submit" name="accion" value="netflix_hogar" class="btn-netflix w-full py-3 font-bold rounded-lg shadow-md hover:shadow-lg transition duration-200">
-                        Actualizar Hogar
-                    </button>
-                </form>
-            </div>
+            enlace_final_confirmacion = obtener_enlace_confirmacion_final_hogar(link_boton_rojo)
 
-            <!-- MÓDULO 2: PRIME VIDEO -->
-            <div class="card bg-gray-900 p-6 rounded-xl shadow-xl border border-blue-700 opacity-60 pointer-events-none">
-                <h3 class="text-3xl font-extrabold text-blue-600 mb-4 text-center tracking-widest">PRIME VIDEO</h3>
-                <p class="text-gray-500 mb-6 text-center text-sm">Módulo en construcción. Usa el correo que reenvía a {{ imap_user }}.</p>
-                <form method="POST" class="space-y-4">
-                    <button type="submit" name="accion" value="prime_code" class="btn-prime w-full py-3 font-bold rounded-lg shadow-md">
-                        Consultar Código
-                    </button>
-                    <button type="submit" name="accion" value="prime_hogar" class="btn-prime w-full py-3 font-bold rounded-lg shadow-md">
-                        Actualizar Hogar
-                    </button>
-                </form>
-            </div>
+            if enlace_final_confirmacion:
+                # *** CAMBIO CLAVE AQUÍ: EN EL COMANDO TELEGRAM, MUESTRA EL ENLACE DIRECTAMENTE EN EL CHAT ***
+                mensaje_telegram_usuario = f"🏠 Solicitud de Hogar procesada. Por favor, **HAZ CLIC INMEDIATAMENTE** en este enlace para confirmar la actualización:\n{enlace_final_confirmacion}\n\n⚠️ Este enlace vence muy rápido. Si ya lo has usado o ha pasado mucho tiempo, es posible que debas solicitar una nueva actualización en tu TV."
+                
+                # Opcional: También enviamos a Telegram del admin como backup o notificación extra (si es diferente al usuario que inició el comando)
+                # Si el usuario que usa el comando /hogar es el ADMIN_TELEGRAM_ID, no hace falta enviar dos veces.
+                # Considerar si quieres que el ADMIN_TELEGRAM_ID sea diferente al ID de los usuarios autorizados.
+                if ADMIN_TELEGRAM_ID and str(message.from_user.id) != ADMIN_TELEGRAM_ID:
+                    mensaje_telegram_admin = f"🚨 NOTIFICACIÓN DE HOGAR NETFLIX (TELEGRAM) 🚨\n\nEl usuario **{correo_busqueda}** ha solicitado actualizar el Hogar Netflix.\n\nEl enlace también se mostró al usuario. Si el usuario no puede acceder, **HAZ CLIC INMEDIATAMENTE AQUÍ**:\n{enlace_final_confirmacion}\n\n⚠️ Este enlace vence muy rápido."
+                    try:
+                        bot.send_message(ADMIN_TELEGRAM_ID, mensaje_telegram_admin, parse_mode='Markdown')
+                        logging.info(f"TELEGRAM: Enlace de hogar final enviado al admin por Telegram (adicional) para {correo_busqueda}.")
+                    except Exception as e:
+                        logging.error(f"TELEGRAM: Error al enviar notificación ADICIONAL por Telegram: {e}")
+                
+                bot.reply_to(message, mensaje_telegram_usuario, parse_mode='Markdown')
 
-            <!-- MÓDULO 3: DISNEY+ -->
-            <div class="card bg-gray-900 p-6 rounded-xl shadow-xl border border-blue-900 opacity-60 pointer-events-none">
-                <h3 class="text-3xl font-extrabold text-blue-800 mb-4 text-center tracking-widest">DISNEY+</h3>
-                <p class="text-gray-500 mb-6 text-center text-sm">Módulo en construcción. Usa el correo que reenvía a {{ imap_user }}.</p>
-                <form method="POST" class="space-y-4">
-                    <button type="submit" name="accion" value="disney_code" class="btn-disney w-full py-3 font-bold rounded-lg shadow-md">
-                        Consultar Código
-                    </button>
-                    <button type="submit" name="accion" value="disney_hogar" class="btn-disney w-full py-3 font-bold rounded-lg shadow-md">
-                        Actualizar Hogar
-                    </button>
-                </form>
-            </div>
-        </main>
+            else:
+                logging.warning("TELEGRAM: No se pudo extraer el enlace de confirmación final del botón negro.")
+                bot.reply_to(message, "❌ TELEGRAM: No se pudo obtener el enlace de confirmación final. El formato de la página puede haber cambiado.")
+        else:
+            bot.reply_to(message, "❌ TELEGRAM: No se encontró ninguna solicitud pendiente para esta cuenta.")
 
-        <footer class="text-center mt-12 text-gray-500 text-sm">
-            <p>Conexión IMAP de Monitoreo: {{ imap_user if imap_user else 'Sin configurar' }}</p>
-            <p>© 2025 DGPPLAY ENTERTAINMENT. Todos los derechos reservados.</p>
-        </footer>
-    </div>
-</body>
-</html>
-"""
+    @bot.message_handler(commands=["cuentas"])
+    def mostrar_correos_telegram(message):
+        """
+        Maneja el comando /cuentas para mostrar los correos autorizados.
+        """
+        todos = []
+        user_id = str(message.from_user.id)
+        if user_id in cuentas and isinstance(cuentas[user_id], list):
+            for entrada in cuentas[user_id]:
+                correo = entrada.split("|")[0] if "|" in entrada else entrada
+                todos.append(correo)
 
-if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port)
+        texto = "📋 Correos registrados para tu ID:\n" + "\n".join(sorted(list(set(todos)))) if todos else "⚠️ No hay correos registrados para tu ID."
+        bot.reply_to(message, texto)
+
+else: # Si no hay BOT_TOKEN, la ruta del webhook debe devolver 200 OK para evitar errores de Render.
+    @app.route(f"/{os.getenv('BOT_TOKEN', 'dummy_token')}", methods=["POST"])
+    def dummy_webhook_route():
+        logging.warning("Webhook de Telegram llamado, pero BOT_TOKEN no está configurado. Ignorando.")
+        return "", 200
+
+# =====================
+# Inicio de la aplicación Flask
+# =====================
+
+if __name__ == "__main__":
+    mantener_vivo() # Para asegurar que Render mantenga la app viva
+    port = int(os.environ.get("PORT", 8080))
+    logging.info(f"Iniciando Flask app en el puerto {port}")
+    app.run(host="0.0.0.0", port=port)
