@@ -8,6 +8,8 @@ from email.header import decode_header
 import re
 import requests
 from bs4 import BeautifulSoup
+import telebot
+from telebot import types 
 
 # Configurar logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -24,16 +26,24 @@ except Exception:
 # Obtener credenciales
 IMAP_USER = os.getenv("E-MAIL_USER")
 IMAP_PASS = os.getenv("EMAIL_PASS")
+BOT_TOKEN = os.getenv("BOT_TOKEN") 
 
 # Inicializar Flask
 app = Flask(__name__)
 
+# Inicializar Telebot (Respaldo)
+if BOT_TOKEN:
+    bot = telebot.TeleBot(BOT_TOKEN)
+    logging.info("Bot de Telegram (Respaldo) inicializado.")
+else:
+    bot = None
+
 # =================================================================
-# LÓGICA DE EXTRACCIÓN (NETFLIX)
+# LÓGICA DE EXTRACCIÓN (NETFLIX) - NO SE MODIFICA
 # =================================================================
 
 def buscar_ultimo_correo(usuario_imap, contrasena_imap, asunto_parte_clave, num_mensajes_revisar=50):
-    """ Busca el último correo que CONTIENE una parte del asunto clave. """
+    """ Busca el último correo que CONTIENE una parte del asunto clave. Retorna HTML, mensaje, status_clase """
     if not usuario_imap or not contrasena_imap:
         return None, "❌ Error: Credenciales IMAP no configuradas en Render.", "error"
     
@@ -106,134 +116,189 @@ def obtener_codigo_de_pagina(url_netflix):
         return None
 
 # =================================================================
-# RUTAS WEB (La Interfaz de Trabajo)
+# HANDLERS DEL BOT DE TELEGRAM (Respaldo) - Mismos comandos /code y /hogar
+# =================================================================
+
+if bot:
+    @bot.message_handler(commands=['start', 'help'])
+    def send_welcome(message):
+        bot.reply_to(message, "¡Hola! Soy el bot de respaldo. Usa /code o /hogar.")
+
+    @bot.message_handler(commands=['code'])
+    def handle_obtener_codigo(message):
+        html_correo, error_msg, error_status = buscar_ultimo_correo(IMAP_USER, IMAP_PASS, "Código de acceso temporal")
+        if error_msg:
+            bot.reply_to(message, error_msg)
+            return
+        # ... (resto de la lógica de Telegram)
+        link = extraer_link_con_token_o_confirmacion(html_correo, es_hogar=False)
+        if link:
+            codigo = obtener_codigo_de_pagina(link)
+            if codigo:
+                bot.reply_to(message, f"✅ CÓDIGO TEMPORAL: {codigo}\nLink: {link}")
+            else:
+                bot.reply_to(message, "⚠️ No se pudo extraer el código de la página de Netflix.")
+        else:
+            bot.reply_to(message, "⚠️ No se encontró un link con token válido en el correo.")
+
+    @bot.message_handler(commands=['hogar'])
+    def handle_confirmar_hogar(message):
+        html_correo, error_msg, error_status = buscar_ultimo_correo(IMAP_USER, IMAP_PASS, "Actualiza tu hogar con un solo clic")
+
+        if error_msg:
+            bot.reply_to(message, error_msg)
+            return
+        
+        link_boton_rojo = extraer_link_con_token_o_confirmacion(html_correo, es_hogar=True)
+        if link_boton_rojo:
+            bot.reply_to(message, f"✅ ENLACE DE CONFIRMACIÓN: Por favor, haz clic aquí:\n{link_boton_rojo}")
+        else:
+            bot.reply_to(message, "❌ No se encontró un correo de Netflix para actualizar el hogar.")
+
+# =================================================================
+# RUTAS WEB (INTERFAZ CON TUS MÓDULOS)
 # =================================================================
 
 @app.route('/', methods=['GET', 'POST'])
 def index():
-    resultado_status = 'warning'
-    resultado_msg = "Bienvenido al Panel de Módulos. Seleccione una acción."
+    resultado = ""
+    status_clase = ""
     
     if request.method == 'POST':
-        plataforma = request.form.get('plataforma')
-        accion = request.form.get('accion')
+        accion = request.form.get('accion') # netflix_code, netflix_hogar, prime_code, etc.
         
         if not IMAP_USER or not IMAP_PASS:
-            resultado_status = 'error'
-            resultado_msg = "❌ ERROR: Las credenciales de correo (E-MAIL_USER/EMAIL_PASS) no están configuradas en Render."
-        elif plataforma == 'netflix':
-            if accion == 'obtener_codigo':
-                html_correo, error_msg, error_status = buscar_ultimo_correo(IMAP_USER, IMAP_PASS, "Código de acceso temporal")
-                if error_msg:
-                    resultado_msg, resultado_status = error_msg, error_status
-                else:
-                    link = extraer_link_con_token_o_confirmacion(html_correo, es_hogar=False)
-                    if link:
-                        codigo = obtener_codigo_de_pagina(link)
-                        resultado_msg = f"✅ **CÓDIGO TEMPORAL:** <code>{codigo}</code><br><strong>Link:</strong> <a href='{link}' target='_blank' class='text-red-400 underline'>Ver Enlace</a>" if codigo else "⚠️ No se pudo extraer el código de la página de Netflix."
-                        resultado_status = 'success' if codigo else 'warning'
-                    else:
-                        resultado_msg = "⚠️ No se encontró un enlace con token en el correo."
-                        resultado_status = 'warning'
-
-            elif accion == 'confirmar_hogar':
-                html_correo, error_msg, error_status = buscar_ultimo_correo(IMAP_USER, IMAP_PASS, "Actualiza tu hogar con un solo clic")
-                if error_msg:
-                    resultado_msg, resultado_status = error_msg, error_status
-                else:
-                    link_boton_rojo = extraer_link_con_token_o_confirmacion(html_correo, es_hogar=True)
-                    resultado_msg = f"✅ **ENLACE DE CONFIRMACIÓN:** Por favor, haz clic aquí: <a href='{link_boton_rojo}' target='_blank' class='text-red-400 underline'>Confirmar Actualización</a>" if link_boton_rojo else "⚠️ No se encontró el correo o el enlace de 'Sí, la envié yo'."
-                    resultado_status = 'success' if link_boton_rojo else 'warning'
+            resultado = "❌ ERROR: Las credenciales de correo (E-MAIL_USER/EMAIL_PASS) no están configuradas en Render."
+            status_clase = "error"
         
-        elif plataforma in ['disney', 'prime']:
-            resultado_msg = f"Módulo de {plataforma.capitalize()} no implementado aún. Trabajando en ello."
-            resultado_status = 'warning'
-    
-    # Renderizamos la plantilla HTML con los resultados
-    return render_template_string(HTML_TEMPLATE, status=resultado_status, message=resultado_msg, imap_user=IMAP_USER)
+        elif 'netflix' in accion:
+            # Lógica de NETFLIX
+            asunto_clave = "Código de acceso temporal" if 'code' in accion else "Actualiza tu hogar con un solo clic"
+            
+            html_correo, error_msg, error_status = buscar_ultimo_correo(IMAP_USER, IMAP_PASS, asunto_clave)
+            
+            if error_msg:
+                resultado, status_clase = error_msg, error_status
+            else:
+                if 'code' in accion:
+                    link = extraer_link_con_token_o_confirmacion(html_correo, es_hogar=False)
+                    codigo = obtener_codigo_de_pagina(link) if link else None
+                    resultado = f"✅ **CÓDIGO TEMPORAL:** <code>{codigo}</code><br><strong>Link:</strong> <a href='{link}' target='_blank' class='text-red-400 underline'>Ver Enlace</a>" if codigo else "⚠️ No se pudo extraer el código/enlace de la página."
+                    status_clase = 'success' if codigo else 'warning'
+                else: # Confirmar Hogar
+                    link_hogar = extraer_link_con_token_o_confirmacion(html_correo, es_hogar=True)
+                    resultado = f"✅ **ENLACE HOGAR:** Por favor, haz clic aquí: <a href='{link_hogar}' target='_blank' class='text-red-400 underline'>Confirmar Actualización</a>" if link_hogar else "⚠️ No se encontró el enlace de 'Sí, la envié yo'."
+                    status_clase = 'success' if link_hogar else 'warning'
+        
+        else:
+            # Lógica de Disney y Prime (Deshabilitado)
+            plataforma_nombre = accion.split('_')[0].capitalize()
+            resultado = f"Módulo de {plataforma_nombre} no implementado aún. Trabajando en ello."
+            status_clase = "warning"
+
+    # Renderizamos la plantilla HTML
+    return render_template_string(HTML_TEMPLATE_MODULOS, resultado=resultado, status_clase=status_clase, imap_user=IMAP_USER)
 
 # =================================================================
-# PLANTILLA HTML PRINCIPAL (Módulos y Formulario)
+# PLANTILLA HTML DE LOS MÓDULOS (TU DISEÑO)
 # =================================================================
 
-HTML_TEMPLATE = """
+HTML_TEMPLATE_MODULOS = """
 <!DOCTYPE html>
 <html lang="es">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Panel de Módulos</title>
+    <title>DGPPLAY ENTERTAINMENT</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
-        body { font-family: 'Inter', sans-serif; }
-        .result-box {
-            min-height: 100px; 
-            white-space: pre-wrap;
-            word-wrap: break-word;
-        }
+        @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;700;900&display=swap');
+        body { font-family: 'Roboto', sans-serif; background-color: #111111; }
+        .card { transition: transform 0.3s ease, box-shadow 0.3s ease; }
+        .card:hover { transform: translateY(-5px); box-shadow: 0 10px 20px rgba(0, 0, 0, 0.4); }
+        .btn-netflix { background-color: #E50914; border: 1px solid #E50914; }
+        .btn-netflix:hover { background-color: #F40A15; }
+        .btn-prime { background-color: #00A8E1; border: 1px solid #00A8E1; }
+        .btn-prime:hover { background-color: #00B9F2; }
+        .btn-disney { background-color: #01509D; border: 1px solid #01509D; }
+        .btn-disney:hover { background-color: #0261AE; }
     </style>
 </head>
-<body class="bg-gray-900 min-h-screen flex items-center justify-center p-4">
-    <div class="w-full max-w-lg bg-gray-800 p-8 rounded-xl shadow-2xl border border-red-700">
-        <h1 class="text-3xl font-extrabold text-red-500 mb-6 text-center">
-            Panel de Módulos (Web)
-        </h1>
-        
-        <!-- Área de Resultados -->
-        <div id="resultado" class="result-box p-4 mb-6 rounded-lg text-sm transition duration-300
-            {% if status == 'success' %}
-                bg-green-900 text-green-200 border-l-4 border-green-500
-            {% elif status == 'error' %}
-                bg-red-900 text-red-200 border-l-4 border-red-500
-            {% else %}
-                bg-gray-700 text-white border-l-4 border-gray-500
-            {% endif %}">
-            {{ message | safe }}
+<body class="p-6">
+    <div class="max-w-6xl mx-auto">
+        <!-- Título principal y Área de Resultados -->
+        <header class="text-center mb-10">
+            <h1 class="text-4xl font-black text-green-500 mb-2 tracking-wider">DGPPLAY ENTERTAINMENT</h1>
+            <h2 class="text-xl text-gray-300">Tu Centro de Acceso Rápido a Códigos de Streaming</h2>
+        </header>
+
+        <!-- Área de Resultados Flotante -->
+        {% if resultado %}
+        <div class="fixed top-0 left-0 right-0 z-50 p-4 flex justify-center">
+            <div class="w-full max-w-xl p-4 rounded-lg shadow-2xl text-white text-center font-medium
+                {% if status_clase == 'success' %}
+                    bg-green-700 border border-green-400
+                {% elif status_clase == 'error' %}
+                    bg-red-700 border border-red-400
+                {% else %}
+                    bg-yellow-700 border border-yellow-400
+                {% endif %}">
+                {{ resultado | safe }}
+            </div>
         </div>
+        {% endif %}
 
-        <!-- Formulario de Acción -->
-        <form method="POST" class="space-y-4">
-            <div>
-                <label for="plataforma" class="block text-sm font-medium text-gray-300 mb-1">
-                    Plataforma a Gestionar
-                </label>
-                <select 
-                    id="plataforma" 
-                    name="plataforma" 
-                    class="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white focus:ring-red-500 focus:border-red-500"
-                >
-                    <option value="netflix">Netflix</option>
-                    <option value="disney" disabled>Disney+ (Próximamente)</option>
-                    <option value="prime" disabled>Prime Video (Próximamente)</option>
-                </select>
+        <!-- Contenedor de Módulos (3 Columnas) -->
+        <main class="grid grid-cols-1 md:grid-cols-3 gap-8">
+            
+            <!-- MÓDULO 1: NETFLIX -->
+            <div class="card bg-gray-900 p-6 rounded-xl shadow-xl border border-red-700">
+                <h3 class="text-3xl font-extrabold text-red-600 mb-4 text-center tracking-widest">NETFLIX</h3>
+                <p class="text-gray-400 mb-6 text-center text-sm">Haz clic para obtener código o actualizar hogar. Usa el correo que reenvía a {{ imap_user }}.</p>
+                <form method="POST" class="space-y-4">
+                    <!-- Campo de Correo del Cliente ELIMINADO para usar el IMAP_USER global -->
+                    <button type="submit" name="accion" value="netflix_code" class="btn-netflix w-full py-3 font-bold rounded-lg shadow-md hover:shadow-lg transition duration-200">
+                        Consultar Código
+                    </button>
+                    <button type="submit" name="accion" value="netflix_hogar" class="btn-netflix w-full py-3 font-bold rounded-lg shadow-md hover:shadow-lg transition duration-200">
+                        Actualizar Hogar
+                    </button>
+                </form>
             </div>
 
-            <div class="space-y-2 pt-4">
-                <button 
-                    type="submit" 
-                    name="accion" 
-                    value="obtener_codigo"
-                    class="w-full flex items-center justify-center px-4 py-3 text-sm font-medium rounded-lg shadow-sm text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 transition duration-150 ease-in-out"
-                >
-                    <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2v2m-4 0v2m-4-2h4m-4 0h.01M9 12h.01M19 12h.01M5 12h.01M15 17h.01M5 7h.01M19 7h.01M15 17a2 2 0 01-2 2H7a2 2 0 01-2-2v-4a2 2 0 012-2h6a2 2 0 012 2v4z"></path></svg>
-                    Obtener Código Temporal
-                </button>
-                
-                <button 
-                    type="submit" 
-                    name="accion" 
-                    value="confirmar_hogar"
-                    class="w-full flex items-center justify-center px-4 py-3 text-sm font-medium rounded-lg shadow-sm text-white bg-gray-600 hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500 transition duration-150 ease-in-out"
-                >
-                    <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path></svg>
-                    Confirmar Hogar
-                </button>
+            <!-- MÓDULO 2: PRIME VIDEO -->
+            <div class="card bg-gray-900 p-6 rounded-xl shadow-xl border border-blue-700 opacity-60 pointer-events-none">
+                <h3 class="text-3xl font-extrabold text-blue-600 mb-4 text-center tracking-widest">PRIME VIDEO</h3>
+                <p class="text-gray-500 mb-6 text-center text-sm">Módulo en construcción. Usa el correo que reenvía a {{ imap_user }}.</p>
+                <form method="POST" class="space-y-4">
+                    <button type="submit" name="accion" value="prime_code" class="btn-prime w-full py-3 font-bold rounded-lg shadow-md">
+                        Consultar Código
+                    </button>
+                    <button type="submit" name="accion" value="prime_hogar" class="btn-prime w-full py-3 font-bold rounded-lg shadow-md">
+                        Actualizar Hogar
+                    </button>
+                </form>
             </div>
-        </form>
-        
-        <p class="text-xs text-gray-500 mt-6 text-center">
-            Conexión IMAP a: {{ imap_user if imap_user else 'Sin configurar' }}
-        </p>
+
+            <!-- MÓDULO 3: DISNEY+ -->
+            <div class="card bg-gray-900 p-6 rounded-xl shadow-xl border border-blue-900 opacity-60 pointer-events-none">
+                <h3 class="text-3xl font-extrabold text-blue-800 mb-4 text-center tracking-widest">DISNEY+</h3>
+                <p class="text-gray-500 mb-6 text-center text-sm">Módulo en construcción. Usa el correo que reenvía a {{ imap_user }}.</p>
+                <form method="POST" class="space-y-4">
+                    <button type="submit" name="accion" value="disney_code" class="btn-disney w-full py-3 font-bold rounded-lg shadow-md">
+                        Consultar Código
+                    </button>
+                    <button type="submit" name="accion" value="disney_hogar" class="btn-disney w-full py-3 font-bold rounded-lg shadow-md">
+                        Actualizar Hogar
+                    </button>
+                </form>
+            </div>
+        </main>
+
+        <footer class="text-center mt-12 text-gray-500 text-sm">
+            <p>Conexión IMAP de Monitoreo: {{ imap_user if imap_user else 'Sin configurar' }}</p>
+            <p>© 2025 DGPPLAY ENTERTAINMENT. Todos los derechos reservados.</p>
+        </footer>
     </div>
 </body>
 </html>
@@ -241,5 +306,4 @@ HTML_TEMPLATE = """
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
-    # NOTA: EL BOT DE TELEGRAM HA SIDO ELIMINADO PARA ENFOCARNOS EN LA WEB
     app.run(host='0.0.0.0', port=port)
