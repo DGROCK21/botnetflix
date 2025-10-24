@@ -90,7 +90,8 @@ def consultar_accion_web():
 
     if not es_correo_autorizado(user_email_input):
         logging.warning(f"WEB: Intento de correo no autorizado: {user_email_input}")
-        return render_template('result.html', status="error", message="⚠️ Correo no autorizado. Por favor, usa un correo registrado en la cuenta @dgplayk.com.")
+        # LÍNEA CORREGIDA: Mensaje genérico para cualquier dominio no autorizado
+        return render_template('result.html', status="error", message="⚠️ Correo no autorizado. Por favor, usa un correo que esté registrado en nuestra lista de cuentas autorizadas.")
 
     if not IMAP_USER or not IMAP_PASS:
         logging.error("WEB: E-MAIL_USER o EMAIL_PASS no definidos. La funcionalidad de lectura de correos no es válida.")
@@ -201,6 +202,7 @@ if bot:
 
         correo_busqueda = partes[1].lower()
         if not es_correo_autorizado(correo_busqueda):
+             # Mantenemos el mensaje genérico aquí para no confundir al usuario
              bot.reply_to(message, "⚠️ Correo no autorizado para esta acción.")
              return
         
@@ -238,6 +240,7 @@ if bot:
 
         correo_busqueda = partes[1].lower()
         if not es_correo_autorizado(correo_busqueda):
+            # Mantenemos el mensaje genérico aquí para no confundir al usuario
             bot.reply_to(message, "⚠️ Correo no autorizado para esta acción.")
             return
 
